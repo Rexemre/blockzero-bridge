@@ -1,39 +1,65 @@
-# Manual BscScan verify (when Hardhat bytecode mismatch)
+# BscScan contract verification
 
-Hardhat auto-verify failed because deployed bytecode differs slightly from current local compile
-(deploy machine used different solc codegen). **wBLOZ address stays the same** — manual verify is fine.
+## Status (2026-06-10)
 
-## Per contract (repeat 3×)
+| Contract | Address | BscScan |
+|----------|---------|---------|
+| **WBLOZ** | `0x395B11E87ac0630aF9DC32520f411dB17C13F24C` | Verified (Exact Match) |
+| **BlozWrapClaim** | `0x03cE8aA17Fa59E62Fd7E5af327f8b4AE47091727` | Verified (Exact Match) |
+| **BlozBridge** | `0xA7f3bEe62b20F041358062d890eF60b4E12464b7` | Verified (Exact Match) |
 
-Open BscScan → contract address → **Verify & Publish** → **Solidity (Single file)** or **Standard JSON**
+## Compiler settings that worked
 
-### WBLOZ `0x395B11E87ac0630aF9DC32520f411dB17C13F24C`
+### WBLOZ (verified)
 
-- Compiler: **0.8.28**
-- Optimization: **Yes**, **200** runs
-- EVM: **cancun**
-- Constructor args (ABI-encoded address):  
-  `00000000000000000000000005099631d705210ab9b62fd696111a27446e1117`
-- Upload: flatten `contracts/WBLOZ.sol` + OpenZeppelin imports, or use `artifacts/build-info/*.json` Standard JSON Input
+- solc **0.8.28**
+- OpenZeppelin **5.3.0**
+- Optimizer **200** runs
+- EVM **paris** (not cancun)
+- Constructor: `0x05099631D705210ab9B62fd696111A27446e1117`
 
-### BlozBridge `0xA7f3bEe62b20F041358062d890eF60b4E12464b7`
+### BlozWrapClaim (verified)
 
-Constructor: `(address wBLOZ, address admin)`  
-`0x395B11E87ac0630aF9DC32520f411dB17C13F24C`, `0x05099631D705210ab9B62fd696111A27446e1117`
+- solc **0.8.28**
+- Optimizer **200** runs
+- EVM **cancun**
+- Constructor: wBLOZ + `0x05099631D705210ab9B62fd696111A27446e1117`
 
-### BlozWrapClaim `0x03cE8aA17Fa59E62Fd7E5af327f8b4AE47091727`
+### BlozBridge (verified)
 
-Constructor: `(address wBLOZ, address signer)`  
-`0x395B11E87ac0630aF9DC32520f411dB17C13F24C`, `0x05099631D705210ab9B62fd696111A27446e1117`
+- solc **0.8.28**
+- OpenZeppelin **5.6.1** (resolved from `package-lock.json` at deploy time, not `^5.3.0` in `package.json`)
+- Optimizer **200** runs
+- EVM **paris** (Hardhat default; no explicit `evmVersion` in config at deploy)
+- Source: current `BlozBridge.sol` (`_startsWithBz1` check only)
+- Constructor: wBLOZ + `0x05099631D705210ab9B62fd696111A27446e1117`
 
-## Standard JSON (easiest)
+Reproduce and verify without redeploy:
 
-1. `npx hardhat compile --force`
-2. Upload `artifacts/build-info/466b7a459572b730d37f9b4407fa8bc9.json` → field **standard-json-input**
-3. Pick contract name from dropdown
-4. Paste constructor args as above
+```bash
+node scripts/verify-bridge-match.mjs
+```
 
-## API note
+Match metadata: `scripts/bridge-verify-match.json`
 
-Etherscan.io API keys work on https://bscscan.com/verifyContract but the **REST API v2 free tier does not include BSC**.
-Browser verification on bscscan.com still works.
+## API verify (works on BSC via Etherscan v2)
+
+Use `bi.input` from `artifacts/build-info/*.json`, **not** the wrapper file:
+
+```bash
+npm install
+npx hardhat compile --force
+node scripts/verify-bsc-api.mjs
+```
+
+Requires `BSCSCAN_API_KEY` or `ETHERSCAN_API_KEY` in `.env`.
+
+## Manual UI
+
+BscScan → contract → **Verify & Publish** → **Standard JSON Input** → upload `artifacts/build-info/<hash>.json` content field `input` only, or full file with format **solidity-standard-json-input**.
+
+Constructor args (ABI-encoded, no `0x` prefix):
+
+- WBLOZ: `00000000000000000000000005099631d705210ab9b62fd696111a27446e1117`
+- Bridge: `000000000000000000000000395b11e87ac0630af9dc32520f411db17c13f24c` + admin (above)
+- Claim: same as Bridge constructor layout

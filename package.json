@@ -8,6 +8,8 @@
     "deploy:bsc": "hardhat run scripts/deploy.ts --network bsc",
     "deploy:claim": "hardhat run scripts/deploy-claim.ts --network bsc",
     "verify:bsc": "hardhat run scripts/verify-bsc.ts --network bsc",
+    "verify:bsc:api": "node scripts/verify-bsc-api.mjs",
+    "verify:bridge": "node scripts/verify-bridge-match.mjs",
     "deploy:bsc-testnet": "hardhat run scripts/deploy.ts --network bscTestnet",
     "relayer": "npm run start --prefix relayer",
     "relayer:dev": "npm run dev --prefix relayer"
@@ -15,7 +17,7 @@
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "@nomicfoundation/hardhat-verify": "^2.0.13",
-    "@openzeppelin/contracts": "^5.6.0",
+    "@openzeppelin/contracts": "5.6.1",
     "dotenv": "^16.4.7",
     "hardhat": "^2.22.19",
     "ts-node": "^10.9.2",

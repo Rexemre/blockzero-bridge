@@ -26,9 +26,17 @@ async function runCli(args: string[]): Promise<string> {
 export async function ensureBridgeWallet(): Promise<void> {
   try {
     await runCli(["getwalletinfo"]);
+    return;
   } catch {
-    await runCli(["createwallet", config.bloz.wallet]);
+    /* wallet not loaded in this bitcoind session */
   }
+  try {
+    await runCli(["loadwallet", config.bloz.wallet]);
+    return;
+  } catch {
+    /* wallet does not exist yet */
+  }
+  await runCli(["createwallet", config.bloz.wallet]);
 }
 
 export async function newDepositAddress(label: string): Promise<string> {
