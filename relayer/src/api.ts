@@ -26,6 +26,10 @@ import {
 
   markWrapClaimable,
 
+  markWrapMintedFromClaim,
+
+  markWrapMintedOnChain,
+
   type WrapRequest,
 
 } from "./db.js";
@@ -164,7 +168,18 @@ async function ensureClaimable(
 
 }
 
-
+async function syncWrapStatuses(db: Database.Database, evmAddress: string): Promise<void> {
+  const rows = listWrapsForEvm(db, evmAddress);
+  for (const row of rows) {
+    if (row.status !== "pending" && row.status !== "claimable") continue;
+    let wrap = getWrapById(db, row.id);
+    if (!wrap) continue;
+    wrap = await ensureClaimable(db, wrap);
+    if (wrap.status === "claimable" && (await isWrapClaimedOnChain(wrap.id))) {
+      markWrapMintedOnChain(db, wrap.id);
+    }
+  }
+}
 
 export function registerApi(app: Express, db: Database.Database): void {
 
@@ -332,6 +347,8 @@ export function registerApi(app: Express, db: Database.Database): void {
 
     try {
 
+      await syncWrapStatuses(db, evmAddress);
+
       const receives = await listRecentReceives();
 
       const rows = listWrapsForEvm(db, evmAddress);
@@ -360,7 +377,40 @@ export function registerApi(app: Express, db: Database.Database): void {
 
   });
 
+  app.post("/api/wrap/confirm-mint", async (req, res) => {
+    const wrapId = String(req.body?.wrapId ?? "").trim();
+    const evmAddress = String(req.body?.evmAddress ?? "").trim();
+    const mintTxHash = String(req.body?.mintTxHash ?? "").trim();
 
+    if (!uuidRe.test(wrapId)) {
+      res.status(400).json({ ok: false, error: "Invalid wrapId" });
+      return;
+    }
+    if (!evmRe.test(evmAddress) || !isAddress(evmAddress)) {
+      res.status(400).json({ ok: false, error: "Invalid EVM address" });
+      return;
+    }
+    if (!/^0x[a-fA-F0-9]{64}$/.test(mintTxHash)) {
+      res.status(400).json({ ok: false, error: "Invalid mintTxHash" });
+      return;
+    }
+
+    try {
+      const wrap = getWrapById(db, wrapId);
+      if (!wrap || wrap.evm_address !== evmAddress.toLowerCase()) {
+        res.status(404).json({ ok: false, error: "Wrap request not found" });
+        return;
+      }
+      if (wrap.status === "minted") {
+        res.json({ ok: true, already: true });
+        return;
+      }
+      markWrapMintedFromClaim(db, wrapId, mintTxHash);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: String(err) });
+    }
+  });
 
   app.post("/api/wrap/claim", async (req, res) => {
 

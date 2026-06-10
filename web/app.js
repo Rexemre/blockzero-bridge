@@ -20,6 +20,8 @@
   let signer = null;
   let account = null;
   let status = null;
+  let unwrapInFlight = false;
+  let pollTimer = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -31,17 +33,32 @@
     </ul>`;
   }
 
-  function getActiveWrap(requests) {
-    return requests?.find((w) => w.status === "pending" || w.status === "claimable");
+  function getActiveWrap(requests, minConf) {
+    return requests?.find((w) => {
+      if (w.status === "minted" || w.status === "refunded" || w.status === "refunding" || w.status === "expired") {
+        return false;
+      }
+      if (w.mint_tx_hash) return false;
+      if (w.status === "claimable") return true;
+      if (w.status === "pending") {
+        if (w.deposit && isReadyToClaim(w, minConf)) return true;
+        return !isWrapExpired(w);
+      }
+      return false;
+    });
   }
 
-  function updateCreateWrapButton(requests) {
+  function isWrapExpired(w) {
+    return w.status === "expired" || (w.expires_at && Date.now() > w.expires_at);
+  }
+
+  function updateCreateWrapButton(requests, minConf) {
     const btn = $("create-wrap");
     if (!btn || !account) return;
-    const active = getActiveWrap(requests);
+    const active = getActiveWrap(requests, minConf);
     if (active) {
       btn.disabled = true;
-      if (active.status === "claimable") {
+      if (isReadyToClaim(active, minConf)) {
         btn.textContent = "Deposit ready — claim wBLOZ below";
       } else if (active.deposit) {
         btn.textContent = "Deposit detected — waiting for confirmations";
@@ -51,6 +68,27 @@
     } else {
       btn.disabled = false;
       btn.textContent = "Create deposit address";
+    }
+  }
+
+  function getActiveUnwrap(requests) {
+    return requests?.find((u) => u.status === "pending" || u.status === "sending");
+  }
+
+  function updateUnwrapButton(requests) {
+    const btn = $("do-unwrap");
+    if (!btn || !account) return;
+    if (unwrapInFlight) {
+      btn.disabled = true;
+      return;
+    }
+    const active = getActiveUnwrap(requests);
+    if (active) {
+      btn.disabled = true;
+      btn.textContent = active.status === "sending" ? "Sending BLOZ…" : "Unwrap processing…";
+    } else {
+      btn.disabled = false;
+      btn.textContent = "Unwrap to BLOZ";
     }
   }
 
@@ -296,6 +334,8 @@
   }
 
   function isReadyToClaim(w, minConf) {
+    if (w.status === "minted" || w.mint_tx_hash) return false;
+    if (w.status === "refunded" || w.status === "refunding" || w.status === "expired") return false;
     if (w.status === "claimable") return true;
     if (w.status !== "pending" || !w.deposit) return false;
     return (w.deposit.confirmations ?? 0) >= minConf;
@@ -335,7 +375,6 @@
       alert("Claim contract not live yet. Try again in a few minutes.");
       return;
     }
-    const prevText = btn?.textContent;
     if (btn) {
       btn.disabled = true;
       btn.textContent = "Preparing claim…";
@@ -361,15 +400,17 @@
       );
       if (btn) btn.textContent = "Waiting for BSC…";
       await tx.wait();
+      await fetch("/api/wrap/confirm-mint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wrapId, evmAddress: account, mintTxHash: tx.hash }),
+      });
       await refreshHistory();
+      scheduleFastPoll(120000);
       alert("wBLOZ claimed successfully. Add the token in MetaMask if you do not see it yet.");
     } catch (e) {
       alert(e.reason || e.message || String(e));
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = prevText || "Claim wBLOZ";
-      }
+      await refreshHistory();
     }
   }
 
@@ -440,7 +481,7 @@
               `If you already sent BLOZ, it will be auto-refunded to your sending address.</p>`
             : `<div class="wrap-hint${isReadyToClaim(w, minConf) ? " wrap-hint--ok" : ""}">${pendingMessage(w, minConf, minWrap)}</div>`;
 
-    const claimBtn = isReadyToClaim(w, minConf) && w.status !== "minted"
+    const claimBtn = isReadyToClaim(w, minConf)
       ? `<div class="wrap-actions">
           <button type="button" class="btn btn-primary claim-wrap" data-wrap-id="${w.id}">Claim wBLOZ</button>
           <span class="wrap-meta">You pay BNB gas · 0% bridge fee</span>
@@ -489,10 +530,11 @@
     const el = $("wrap-history");
     const minConf = data.minConfirmations ?? status?.confirmations ?? 6;
     const minWrap = data.minWrapBloz ?? status?.minWrapBloz ?? 0.01;
-    updateCreateWrapButton(data.requests ?? []);
+    updateCreateWrapButton(data.requests ?? [], minConf);
 
     if (!data.requests?.length) {
       el.innerHTML = "";
+      $("wrap-result").hidden = true;
       return;
     }
 
@@ -505,7 +547,7 @@
     bindCopyButtons(el);
     bindWrapActions(el);
 
-    const active = getActiveWrap(data.requests);
+    const active = getActiveWrap(data.requests, minConf);
     if (active) {
       $("wrap-result").hidden = false;
       const statusLine = active.deposit
@@ -516,6 +558,8 @@
         `<code>${active.deposit_address}</code><br><br>` +
         wrapDepositRules(minWrap) +
         `<p class="wrap-meta">${statusLine}</p>`;
+    } else {
+      $("wrap-result").hidden = true;
     }
   }
 
@@ -604,6 +648,7 @@
     if (!el) return;
     const r = await fetch("/api/unwrap?evmAddress=" + encodeURIComponent(account));
     const data = await r.json();
+    updateUnwrapButton(data.requests ?? []);
     if (!data.requests?.length) {
       el.innerHTML = "";
       return;
@@ -640,7 +685,9 @@
       );
       if (!ok) return;
     }
+    unwrapInFlight = true;
     $("do-unwrap").disabled = true;
+    $("do-unwrap").textContent = "Confirm in MetaMask…";
     $("unwrap-status").hidden = false;
     try {
       const wBLOZ = new ethers.Contract(status.wBLOZ, WBLOZ_ABI, signer);
@@ -667,6 +714,7 @@
       $("unwrap-status").innerHTML +=
         `<br><br>Confirmed on BSC. Payout usually follows within a few minutes — see <strong>Your unwrap requests</strong> below.`;
       await refreshUnwrapBalance();
+      scheduleFastPoll(180000);
       setTimeout(() => refreshUnwrapHistory().catch(() => {}), 3000);
       await refreshUnwrapHistory();
     } catch (e) {
@@ -674,9 +722,26 @@
         `<span style="color:#ff8a8a">Unwrap failed: ${e.reason || e.message || e}</span>`;
       alert(e.reason || e.message || e);
     } finally {
-      $("do-unwrap").disabled = false;
+      unwrapInFlight = false;
+      refreshUnwrapHistory().catch(() => {});
     }
   });
+
+  function scheduleFastPoll(ms) {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+      loadStatus().catch(() => {});
+      refreshHistory().catch(() => {});
+      refreshUnwrapBalance().catch(() => {});
+      refreshUnwrapHistory().catch(() => {});
+    }, 5000);
+    setTimeout(() => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }, ms);
+  }
 
   loadStatus().catch(() => {
     $("reserves").textContent = "Could not load bridge status.";
@@ -684,9 +749,10 @@
   $("add-token")?.addEventListener("click", () => addTokenToWallet().catch((e) => alert(e.message)));
   $("copy-token")?.addEventListener("click", copyTokenAddress);
   setInterval(() => {
+    if (pollTimer) return;
     loadStatus().catch(() => {});
     refreshHistory().catch(() => {});
     refreshUnwrapBalance().catch(() => {});
     refreshUnwrapHistory().catch(() => {});
-  }, 30000);
+  }, 10000);
 })();
