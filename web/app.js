@@ -155,7 +155,10 @@
       const docs = status.docs
         ? `<a href="${status.docs}" target="_blank" rel="noopener">Bridge guide</a>`
         : "Bridge guide";
-      tl.innerHTML = `${gh} · ${docs} · No third-party audit yet — verify contracts on BscScan after publication.`;
+      tl.innerHTML =
+        `${gh} · ${docs} · ` +
+        `<a href="https://bscscan.com/address/${status.wBLOZ}#code" target="_blank" rel="noopener">wBLOZ verified</a> · ` +
+        `No third-party audit yet — review source on BscScan before large amounts.`;
     }
     const tc = $("token-contract");
     if (tc) tc.textContent = status.wBLOZ;
