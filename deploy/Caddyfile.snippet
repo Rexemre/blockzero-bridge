@@ -1,0 +1,25 @@
+# bridge.bloz.org — BLOZ ↔ wBLOZ relayer + UI
+# DNS: A record bridge.bloz.org -> 217.160.46.61
+
+bridge.bloz.org {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3010
+
+	log {
+		output file /var/log/caddy/blockzero-bridge.log {
+			roll_size 50mb
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		format console
+		level INFO
+	}
+
+	header {
+		X-Frame-Options "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}

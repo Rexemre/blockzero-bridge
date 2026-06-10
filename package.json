@@ -1,0 +1,24 @@
+{
+  "name": "blockzero-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BLOZ ↔ wBLOZ bridge (Block Zero native chain to BSC)",
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:bsc": "hardhat run scripts/deploy.ts --network bsc",
+    "deploy:claim": "hardhat run scripts/deploy-claim.ts --network bsc",
+    "verify:bsc": "hardhat run scripts/verify-bsc.ts --network bsc",
+    "deploy:bsc-testnet": "hardhat run scripts/deploy.ts --network bscTestnet",
+    "relayer": "npm run start --prefix relayer",
+    "relayer:dev": "npm run dev --prefix relayer"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.13",
+    "@openzeppelin/contracts": "^5.3.0",
+    "dotenv": "^16.4.7",
+    "hardhat": "^2.22.19",
+    "typescript": "^5.8.2",
+    "ts-node": "^10.9.2"
+  }
+}

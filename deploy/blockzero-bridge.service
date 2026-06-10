@@ -1,0 +1,17 @@
+[Unit]
+Description=Block Zero BSC bridge relayer (BLOZ ↔ wBLOZ)
+After=network-online.target blockzero-bridge-node.service
+Wants=network-online.target
+Requires=blockzero-bridge-node.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/blockzero-bridge/relayer
+EnvironmentFile=/opt/blockzero-bridge/.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target

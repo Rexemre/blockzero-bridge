@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BLOZ Bridge — Wrap &amp; Unwrap on BSC</title>
+  <meta name="description" content="Wrap native BLOZ to wBLOZ on BNB Smart Chain for DEX trading. 1:1 backed bridge." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Orbitron:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="header">
+    <a class="brand" href="https://bloz.org">BLOCK ZERO</a>
+    <span class="badge">BSC Bridge</span>
+    <button id="connect" class="btn">Connect Wallet</button>
+  </header>
+
+  <main class="main">
+    <section class="hero">
+      <h1>Wrap BLOZ → wBLOZ</h1>
+      <p class="lede">Move native BLOZ to BNB Smart Chain as <strong>wBLOZ</strong> (ERC-20, 8 decimals). 1:1 backed. Unwrap anytime.</p>
+      <div id="reserves" class="reserves">Loading reserves…</div>
+    </section>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="wrap">Wrap (BLOZ → wBLOZ)</button>
+      <button class="tab" data-tab="unwrap">Unwrap (wBLOZ → BLOZ)</button>
+    </div>
+
+    <section id="panel-wrap" class="panel">
+      <ol class="steps">
+        <li>Connect your BSC wallet (MetaMask).</li>
+        <li>Create a unique deposit address below (one active address per wallet).</li>
+        <li>Send native BLOZ in <strong>one transaction</strong> — any amount ≥ 0.01 BLOZ (you receive the same amount in wBLOZ).</li>
+        <li>Do <strong>not</strong> send twice to the same address. Wait for expiry before creating a new one.</li>
+        <li>After <span id="min-conf">6</span> confirmations, click <strong>Claim wBLOZ</strong> (you pay a small BNB gas fee).</li>
+        <li>Claim within <span id="claim-expiry-hours">7</span> days after deposit confirms — otherwise BLOZ is <strong>auto-refunded</strong> to the sending address (minus network fee).</li>
+        <li><strong>Add wBLOZ in MetaMask</strong> (see below) — it will not appear automatically.</li>
+      </ol>
+      <button id="create-wrap" class="btn btn-primary" disabled>Create deposit address</button>
+      <div id="wrap-result" class="result" hidden></div>
+      <div id="wrap-history" class="history"></div>
+    </section>
+
+    <section id="panel-unwrap" class="panel" hidden>
+      <ol class="steps">
+        <li>Connect MetaMask on <strong>BNB Smart Chain</strong> with wBLOZ in your wallet.</li>
+        <li>Enter the amount and your Block Zero receive address (<code>bz1…</code>).</li>
+        <li>Approve wBLOZ (first time only) and confirm unwrap — <strong>you pay BNB gas</strong>.</li>
+        <li>Native BLOZ is sent to your <code>bz1…</code> address after relayer processing (usually within minutes).</li>
+        <li>Payout is your unwrap amount <strong>minus a small Block Zero network fee</strong> (see below) — not a bridge markup.</li>
+        <li><strong>0% bridge fee</strong> on BSC; you pay BNB gas for approve + unwrap.</li>
+      </ol>
+      <p id="unwrap-balance" class="unwrap-balance">Connect wallet to see your wBLOZ balance.</p>
+      <p id="unwrap-fee-note" class="unwrap-note">Block Zero network fee on payout: loading…</p>
+      <label>Amount (wBLOZ)
+        <input id="unwrap-amount" type="text" inputmode="decimal" placeholder="10.0" />
+      </label>
+      <p id="unwrap-estimate" class="unwrap-note" hidden></p>
+      <label>Block Zero address (bz1…)
+        <input id="unwrap-bz1" type="text" placeholder="bz1…" autocomplete="off" spellcheck="false" />
+      </label>
+      <button id="do-unwrap" class="btn btn-primary" disabled>Unwrap to BLOZ</button>
+      <p class="unwrap-note">You pay BNB for approve + unwrap · Bridge reserve must cover your unwrap amount</p>
+      <div id="unwrap-status" class="result" hidden></div>
+      <div id="unwrap-history" class="history"></div>
+    </section>
+
+    <section class="panel token-help" id="token-help">
+      <h2>See wBLOZ in your wallet</h2>
+      <p class="lede-small">
+        Yes — this is normal. MetaMask (and most wallets) do <strong>not</strong> list custom BEP-20 tokens until you import them once.
+        Minting still succeeds on-chain; the balance is just hidden until you add the token.
+      </p>
+      <ol class="steps">
+        <li>Connect MetaMask on <strong>BNB Smart Chain</strong> (not Ethereum).</li>
+        <li>Click <strong>Add wBLOZ to MetaMask</strong> below, or import manually.</li>
+        <li>Manual: MetaMask → Tokens → Import token → paste contract address, symbol <code>wBLOZ</code>, decimals <code>8</code>.</li>
+      </ol>
+      <p class="token-contract-label">wBLOZ contract (BSC)</p>
+      <code id="token-contract" class="token-contract">loading…</code>
+      <div class="token-actions">
+        <button type="button" id="add-token" class="btn btn-primary">Add wBLOZ to MetaMask</button>
+        <button type="button" id="copy-token" class="btn">Copy contract address</button>
+      </div>
+    </section>
+
+    <section class="panel trust" id="trust-panel">
+      <h2>Trust &amp; transparency</h2>
+      <p class="lede-small">1 wBLOZ is backed 1:1 by native BLOZ held in the bridge wallet. Minting happens only through the on-chain claim contract after your deposit confirms.</p>
+      <dl id="trust-info" class="trust-dl"></dl>
+      <ul class="trust-list">
+        <li><strong>Custodial model:</strong> unwrap payouts and auto-refunds are sent from the bridge BLOZ reserve.</li>
+        <li><strong>Auto-refund:</strong> unclaimed wraps, expired addresses, duplicate deposits, and amounts below the minimum are returned to the original <code>bz1…</code> sender minus the Block Zero network fee.</li>
+        <li><strong>Verify yourself:</strong> compare live reserves above with <code>wBLOZ.totalSupply()</code> on BscScan and the bridge wallet balance on the Block Zero explorer.</li>
+      </ul>
+      <p class="fineprint" id="trust-links">Source code and full trust model: loading…</p>
+    </section>
+
+    <section class="contracts">
+      <h2>Contracts (BSC)</h2>
+      <dl id="contract-info"></dl>
+      <p class="fineprint">Only use the official contract addresses below. Only send BLOZ to deposit addresses generated on this page.</p>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
