@@ -6,7 +6,13 @@ import { isAddress } from "viem";
 
 import { config } from "./config.js";
 
-import { blozToUnits, unwrapNetworkFeeBloz, unwrapPayoutBloz } from "./bloz.js";
+import {
+  blozToUnits,
+  bridgeFeeBps,
+  unwrapNetworkFeeBloz,
+  unwrapPayoutBloz,
+  wrapMintBloz,
+} from "./bloz.js";
 
 import { signWrapClaim, wrapIdToBytes32 } from "./claim.js";
 
@@ -227,6 +233,10 @@ export function registerApi(app: Express, db: Database.Database): void {
 
         refundNetworkFeeBloz: config.bloz.unwrapNetworkFeeBloz,
 
+        bridgeFeeBps: bridgeFeeBps(),
+
+        bridgeFeePercent: bridgeFeeBps() / 100,
+
         github: config.meta.githubUrl,
 
         docs: config.meta.docsUrl,
@@ -366,6 +376,8 @@ export function registerApi(app: Express, db: Database.Database): void {
         minWrapBloz: config.bloz.minWrapBloz,
 
         wrapClaim: config.bsc.wrapClaimAddress ?? null,
+
+        bridgeFeeBps: bridgeFeeBps(),
 
       });
 
@@ -517,7 +529,10 @@ export function registerApi(app: Express, db: Database.Database): void {
 
 
 
-      const amountUnits = blozToUnits(wrap.bloz_amount);
+      // Bridge fee: user receives deposit minus fee as wBLOZ; the fee stays
+      // in the bridge reserve (keeps wBLOZ over-backed).
+      const mintBloz = wrapMintBloz(wrap.bloz_amount);
+      const amountUnits = blozToUnits(mintBloz);
 
       const deadline = Math.min(
         nowSec + config.bloz.claimSigTtlSec,
@@ -565,6 +580,10 @@ export function registerApi(app: Express, db: Database.Database): void {
           signature,
 
           blozAmount: wrap.bloz_amount,
+
+          mintBloz,
+
+          bridgeFeeBps: bridgeFeeBps(),
 
         },
 
@@ -630,7 +649,7 @@ export function registerApi(app: Express, db: Database.Database): void {
 
       });
 
-      res.json({ ok: true, requests });
+      res.json({ ok: true, requests, bridgeFeeBps: bridgeFeeBps() });
 
     } catch (err) {
 

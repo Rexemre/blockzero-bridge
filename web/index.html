@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BLOZ Bridge — Wrap &amp; Unwrap on BSC</title>
-  <meta name="description" content="Wrap native BLOZ to wBLOZ on BNB Smart Chain for DEX trading. 1:1 backed bridge." />
+  <meta name="description" content="Wrap native BLOZ to wBLOZ on BNB Smart Chain for DEX trading. Fully backed reserve · 3.9% bridge fee." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Orbitron:wght@600;700&display=swap" rel="stylesheet" />
@@ -20,7 +20,7 @@
   <main class="main">
     <section class="hero">
       <h1>Wrap BLOZ → wBLOZ</h1>
-      <p class="lede">Move native BLOZ to BNB Smart Chain as <strong>wBLOZ</strong> (ERC-20, 8 decimals). 1:1 backed. Unwrap anytime.</p>
+      <p class="lede">Move native BLOZ to BNB Smart Chain as <strong>wBLOZ</strong> (ERC-20, 8 decimals). Fully backed reserve. Unwrap anytime. <strong>3.9% bridge fee</strong> per wrap and unwrap.</p>
       <div id="reserves" class="reserves">Loading reserves…</div>
     </section>
 
@@ -33,7 +33,7 @@
       <ol class="steps">
         <li>Connect your BSC wallet (MetaMask).</li>
         <li>Create a unique deposit address below (one active address per wallet).</li>
-        <li>Send native BLOZ in <strong>one transaction</strong> — any amount ≥ 0.01 BLOZ (you receive the same amount in wBLOZ).</li>
+        <li>Send native BLOZ in <strong>one transaction</strong> — any amount ≥ 0.01 BLOZ. You receive <strong>96.1%</strong> as wBLOZ (<strong>3.9% bridge fee</strong>).</li>
         <li>Do <strong>not</strong> send twice to the same address. Wait for expiry before creating a new one.</li>
         <li>After <span id="min-conf">6</span> confirmations, click <strong>Claim wBLOZ</strong> (you pay a small BNB gas fee).</li>
         <li>Claim within <span id="claim-expiry-hours">7</span> days after deposit confirms — otherwise BLOZ is <strong>auto-refunded</strong> to the sending address (minus network fee).</li>
@@ -50,8 +50,8 @@
         <li>Enter the amount and your Block Zero receive address (<code>bz1…</code>).</li>
         <li>Approve wBLOZ (first time only) and confirm unwrap — <strong>you pay BNB gas</strong>.</li>
         <li>Native BLOZ is sent to your <code>bz1…</code> address after relayer processing (usually within minutes).</li>
-        <li>Payout is your unwrap amount <strong>minus a small Block Zero network fee</strong> (see below) — not a bridge markup.</li>
-        <li><strong>0% bridge fee</strong> on BSC; you pay BNB gas for approve + unwrap.</li>
+        <li>Payout is your unwrap amount <strong>minus the 3.9% bridge fee</strong> and a small Block Zero network fee (see below).</li>
+        <li><strong>3.9% bridge fee</strong> per unwrap; you also pay BNB gas for approve + unwrap.</li>
       </ol>
       <p id="unwrap-balance" class="unwrap-balance">Connect wallet to see your wBLOZ balance.</p>
       <p id="unwrap-fee-note" class="unwrap-note">Block Zero network fee on payout: loading…</p>
@@ -89,10 +89,11 @@
 
     <section class="panel trust" id="trust-panel">
       <h2>Trust &amp; transparency</h2>
-      <p class="lede-small">1 wBLOZ is backed 1:1 by native BLOZ held in the bridge wallet. Minting happens only through the on-chain claim contract after your deposit confirms.</p>
+      <p class="lede-small">Every wBLOZ is backed by native BLOZ held in the bridge wallet. Minting happens only through the on-chain claim contract after your deposit confirms.</p>
       <dl id="trust-info" class="trust-dl"></dl>
       <ul class="trust-list">
         <li><strong>Custodial model:</strong> unwrap payouts and auto-refunds are sent from the bridge BLOZ reserve.</li>
+        <li><strong>Bridge fee:</strong> 3.9% is deducted on wrap (you receive 96.1% as wBLOZ) and on unwrap (you receive 96.1% as BLOZ, minus network fee). The fee stays in the reserve, so wBLOZ remains over-backed.</li>
         <li><strong>Auto-refund:</strong> unclaimed wraps, expired addresses, duplicate deposits, and amounts below the minimum are returned to the original <code>bz1…</code> sender minus the Block Zero network fee.</li>
         <li><strong>Verify yourself:</strong> compare live reserves above with <code>wBLOZ.totalSupply()</code> on BscScan and the bridge wallet balance on the Block Zero explorer.</li>
       </ul>

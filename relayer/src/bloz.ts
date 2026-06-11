@@ -178,12 +178,33 @@ export function unitsToBloz(units: bigint): number {
   return Number(units) / 1e8;
 }
 
-/** Native BLOZ sent to user after unwrap (burned amount minus network fee). */
+export function bridgeFeeBps(): number {
+  return config.bloz.bridgeFeeBps;
+}
+
+/** Amount remaining after the bridge service fee (e.g. 3.9%), floored to 8 decimals. */
+export function applyBridgeFee(amountBloz: number): number {
+  const net = amountBloz * (1 - config.bloz.bridgeFeeBps / 10_000);
+  return Math.floor(net * 1e8) / 1e8;
+}
+
+/** wBLOZ minted for a confirmed deposit (deposit minus bridge fee). */
+export function wrapMintBloz(depositedBloz: number): number {
+  const net = applyBridgeFee(depositedBloz);
+  if (!Number.isFinite(net) || net <= 0) {
+    throw new Error(`Wrap amount too small after ${config.bloz.bridgeFeeBps / 100}% bridge fee`);
+  }
+  return net;
+}
+
+/** Native BLOZ sent to user after unwrap (burned minus bridge fee minus network fee). */
 export function unwrapPayoutBloz(burnedBloz: number): number {
-  const fee = Number(config.bloz.unwrapNetworkFeeBloz);
-  const payout = burnedBloz - fee;
+  const networkFee = Number(config.bloz.unwrapNetworkFeeBloz);
+  const payout = applyBridgeFee(burnedBloz) - networkFee;
   if (!Number.isFinite(payout) || payout <= 0) {
-    throw new Error(`Unwrap amount too small (min payout after ${fee} BLOZ fee)`);
+    throw new Error(
+      `Unwrap amount too small (min payout after ${config.bloz.bridgeFeeBps / 100}% bridge fee + ${networkFee} BLOZ network fee)`
+    );
   }
   return Math.floor(payout * 1e8) / 1e8;
 }
@@ -192,7 +213,15 @@ export function unwrapNetworkFeeBloz(): number {
   return Number(config.bloz.unwrapNetworkFeeBloz);
 }
 
-/** Native BLOZ returned after failed/unclaimed wrap or orphan deposit (minus network fee). */
+/**
+ * Native BLOZ returned after failed/unclaimed wrap or orphan deposit.
+ * Refunds are NOT a bridge service — only the chain network fee is deducted.
+ */
 export function refundPayoutBloz(depositedBloz: number): number {
-  return unwrapPayoutBloz(depositedBloz);
+  const fee = Number(config.bloz.unwrapNetworkFeeBloz);
+  const payout = depositedBloz - fee;
+  if (!Number.isFinite(payout) || payout <= 0) {
+    throw new Error(`Refund amount too small (min payout after ${fee} BLOZ network fee)`);
+  }
+  return Math.floor(payout * 1e8) / 1e8;
 }

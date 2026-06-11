@@ -4,7 +4,7 @@
 
 Wrap native **BLOZ** (Block Zero mainnet) to **wBLOZ** (BEP-20 on BNB Smart Chain) for DEX liquidity.  
 
-1:1 ratio, 8 decimals. Unwrap burns wBLOZ and sends native BLOZ back.
+8 decimals. **3.9% bridge fee** per wrap and unwrap (`BRIDGE_FEE_BPS=390`). Unwrap burns wBLOZ and sends native BLOZ back. The fee stays in the BLOZ reserve, so wBLOZ remains over-backed.
 
 
 
@@ -66,7 +66,7 @@ BLOZ is automatically returned to the **original sending `bz1…` address** (min
 
 
 
-Fee: same as unwrap — `UNWRAP_NETWORK_FEE_BLOZ` (default `0.00001` BLOZ).
+Refund fee: only the network fee `UNWRAP_NETWORK_FEE_BLOZ` (default `0.00001` BLOZ) — **no 3.9% bridge fee** on refunds.
 
 
 
@@ -210,7 +210,7 @@ systemctl restart caddy
 
 3. Sends native BLOZ from Block Zero wallet
 
-4. After 6 confirmations → user claims wBLOZ on BSC (BNB gas)
+4. After 6 confirmations → user claims wBLOZ on BSC (BNB gas) — receives **96.1%** of the deposit (3.9% bridge fee)
 
 
 
@@ -220,7 +220,7 @@ systemctl restart caddy
 
 1. User approves + calls `unwrap(amount, bz1Address)` on BlozBridge
 
-2. Relayer detects event, sends native BLOZ from bridge wallet
+2. Relayer detects event, sends native BLOZ from bridge wallet — **96.1%** of the burned amount (3.9% bridge fee) minus the network fee
 
 
 

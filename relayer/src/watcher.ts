@@ -13,6 +13,7 @@ import {
   unitsToBloz,
   unwrapNetworkFeeBloz,
   unwrapPayoutBloz,
+  wrapMintBloz,
 } from "./bloz.js";
 
 import {
@@ -76,7 +77,15 @@ export async function pollWrapDeposits(db: Database.Database): Promise<void> {
     const sender = await getDepositSenderBz1(tx.txid);
     markWrapClaimable(db, wrap.id, tx.txid, tx.amount, sender, claimExpiresAt);
     processedDeposits.add(key);
-    console.log(`Claimable ${tx.amount} wBLOZ for ${wrap.evm_address} (wrap ${wrap.id})`);
+    let mintable = tx.amount;
+    try {
+      mintable = wrapMintBloz(tx.amount);
+    } catch {
+      /* below fee threshold — claim endpoint will reject with a clear error */
+    }
+    console.log(
+      `Claimable ${mintable} wBLOZ (deposit ${tx.amount} BLOZ, after bridge fee) for ${wrap.evm_address} (wrap ${wrap.id})`
+    );
   }
 }
 
@@ -166,7 +175,7 @@ async function processUnwrapPayouts(db: Database.Database): Promise<void> {
       }
       const burned = unitsToBloz(BigInt(req.amount_units));
       console.log(
-        `Unwrap ${req.unwrap_id}: sent ${payout} BLOZ -> ${req.bz1_address} (burned ${burned}, fee ${unwrapNetworkFeeBloz()}) (${txid})`
+        `Unwrap ${req.unwrap_id}: sent ${payout} BLOZ -> ${req.bz1_address} (burned ${burned}, bridge fee + network fee ${unwrapNetworkFeeBloz()}) (${txid})`
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

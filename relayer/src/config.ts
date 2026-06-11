@@ -29,6 +29,8 @@ export const config = {
     minWrapBloz: process.env.MIN_WRAP_BLOZ ?? "0.01",
     /** Deducted from native BLOZ payout on unwrap (covers chain tx fee). */
     unwrapNetworkFeeBloz: process.env.UNWRAP_NETWORK_FEE_BLOZ ?? "0.00001",
+    /** Bridge service fee in basis points, applied on wrap (mint) and unwrap (payout). 390 = 3.9%. */
+    bridgeFeeBps: num("BRIDGE_FEE_BPS", 390),
     unwrapMaxAttempts: num("UNWRAP_MAX_ATTEMPTS", 5),
     unwrapRetryDelayMs: num("UNWRAP_RETRY_DELAY_MS", 60_000),
     /** Hours after a deposit is claimable before unclaimed BLOZ is auto-refunded. */

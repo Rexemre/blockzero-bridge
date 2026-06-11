@@ -28,7 +28,7 @@
   function wrapDepositRules(minWrap) {
     return `<ul class="wrap-rules">
       <li>Send <strong>exactly one</strong> transaction to this address.</li>
-      <li>Any amount ≥ <strong>${minWrap} BLOZ</strong> — you receive the <strong>same amount</strong> in wBLOZ (1:1).</li>
+      <li>Any amount ≥ <strong>${minWrap} BLOZ</strong> — you receive <strong>${(100 - bridgeFeePct()).toFixed(1)}%</strong> as wBLOZ (<strong>${bridgeFeePct().toFixed(1)}% bridge fee</strong>).</li>
       <li>Do <strong>not</strong> send a second transaction. Finish this wrap or wait until it expires, then create a new address.</li>
     </ul>`;
   }
@@ -109,8 +109,26 @@
     return Number(status?.unwrapNetworkFeeBloz ?? 0.00001);
   }
 
+  function bridgeFeeBps() {
+    return Number(status?.bridgeFeeBps ?? 390);
+  }
+
+  function bridgeFeePct() {
+    return bridgeFeeBps() / 100;
+  }
+
+  function applyBridgeFee(amount) {
+    return Math.floor(amount * (1 - bridgeFeeBps() / 10000) * 1e8) / 1e8;
+  }
+
+  function calcWrapMint(deposited) {
+    const net = applyBridgeFee(deposited);
+    if (!Number.isFinite(net) || net <= 0) return null;
+    return net;
+  }
+
   function calcUnwrapPayout(burned) {
-    const payout = burned - unwrapNetworkFee();
+    const payout = applyBridgeFee(burned) - unwrapNetworkFee();
     if (!Number.isFinite(payout) || payout <= 0) return null;
     return Math.floor(payout * 1e8) / 1e8;
   }
@@ -120,7 +138,7 @@
     const feeEl = $("unwrap-fee-note");
     if (feeEl) {
       feeEl.textContent =
-        `Block Zero network fee deducted from payout: ${fee.toFixed(8)} BLOZ per unwrap (covers the native chain tx fee).`;
+        `Deducted from payout: ${bridgeFeePct().toFixed(1)}% bridge fee + ${fee.toFixed(8)} BLOZ network fee.`;
     }
     updateUnwrapEstimate();
   }
@@ -137,13 +155,14 @@
     const payout = calcUnwrapPayout(burned);
     if (payout == null) {
       el.hidden = false;
-      el.textContent = `Amount too small — need more than ${unwrapNetworkFee().toFixed(8)} BLOZ after network fee.`;
+      el.textContent = `Amount too small — payout must stay above zero after the ${bridgeFeePct().toFixed(1)}% bridge fee and ${unwrapNetworkFee().toFixed(8)} BLOZ network fee.`;
       return;
     }
     el.hidden = false;
     el.innerHTML =
       `You burn <strong>${burned.toFixed(8)} wBLOZ</strong> → receive about ` +
-      `<strong>${payout.toFixed(8)} BLOZ</strong> on Block Zero.`;
+      `<strong>${payout.toFixed(8)} BLOZ</strong> on Block Zero ` +
+      `(${bridgeFeePct().toFixed(1)}% bridge fee + ${unwrapNetworkFee().toFixed(8)} network fee deducted).`;
   }
 
   function bscAddrLink(addr) {
@@ -183,7 +202,8 @@
         `<dt>Claim signer</dt><dd>${status.claimSigner ? bscAddrLink(status.claimSigner) : "—"}</dd>` +
         `<dt>Deployer</dt><dd>${status.deployer ? bscAddrLink(status.deployer) : "—"}</dd>` +
         `<dt>Claim window</dt><dd>${claimDays} days after deposit confirms</dd>` +
-        `<dt>Refund / unwrap fee</dt><dd>${Number(status.refundNetworkFeeBloz ?? status.unwrapNetworkFeeBloz ?? 0.00001).toFixed(8)} BLOZ</dd>`;
+        `<dt>Bridge fee</dt><dd>${bridgeFeePct().toFixed(1)}% per wrap and unwrap</dd>` +
+        `<dt>Network fee</dt><dd>${Number(status.refundNetworkFeeBloz ?? status.unwrapNetworkFeeBloz ?? 0.00001).toFixed(8)} BLOZ per payout / refund</dd>`;
     }
     const tl = $("trust-links");
     if (tl) {
@@ -348,7 +368,10 @@
       const claimBy = w.claim_expires_at
         ? ` Claim by <strong>${fmtDate(w.claim_expires_at)}</strong> or BLOZ is auto-refunded.`
         : "";
-      return `Deposit confirmed: <strong>${Number(w.bloz_amount ?? dep?.amount ?? 0).toFixed(8)} BLOZ</strong>. ` +
+      const gross = Number(w.bloz_amount ?? dep?.amount ?? 0);
+      const mint = calcWrapMint(gross);
+      return `Deposit confirmed: <strong>${gross.toFixed(8)} BLOZ</strong>. ` +
+        `You receive <strong>${mint != null ? mint.toFixed(8) : "?"} wBLOZ</strong> (after ${bridgeFeePct().toFixed(1)}% bridge fee). ` +
         `Click <strong>Claim wBLOZ</strong> below — you pay a small BNB gas fee in MetaMask.${claimBy}`;
     }
     if (w.status !== "pending") return "";
@@ -362,7 +385,9 @@
       return `Deposit detected: <strong>${Number(dep.amount).toFixed(8)} BLOZ</strong> · ` +
         `<strong>${conf}/${need}</strong> confirmations. You can claim wBLOZ once confirmed.`;
     }
+    const mint = calcWrapMint(Number(dep.amount));
     return `Deposit confirmed: <strong>${Number(dep.amount).toFixed(8)} BLOZ</strong>. ` +
+      `You receive <strong>${mint != null ? mint.toFixed(8) : "?"} wBLOZ</strong> (after ${bridgeFeePct().toFixed(1)}% bridge fee). ` +
       `Click <strong>Claim wBLOZ</strong> below — you pay a small BNB gas fee in MetaMask.`;
   }
 
@@ -452,10 +477,15 @@
     }
 
     if (w.status === "minted" && w.bloz_amount != null) {
+      const minted = calcWrapMint(Number(w.bloz_amount));
       detailRows += `
       <div class="wrap-row">
+        <span class="wrap-label">Deposited</span>
+        <span class="wrap-value"><strong>${Number(w.bloz_amount).toFixed(8)} BLOZ</strong></span>
+      </div>
+      <div class="wrap-row">
         <span class="wrap-label">Wrapped amount</span>
-        <span class="wrap-value"><strong>${Number(w.bloz_amount).toFixed(8)} wBLOZ</strong></span>
+        <span class="wrap-value"><strong>${minted != null ? minted.toFixed(8) : Number(w.bloz_amount).toFixed(8)} wBLOZ</strong> (after ${bridgeFeePct().toFixed(1)}% fee)</span>
       </div>`;
     }
 
@@ -484,7 +514,7 @@
     const claimBtn = isReadyToClaim(w, minConf)
       ? `<div class="wrap-actions">
           <button type="button" class="btn btn-primary claim-wrap" data-wrap-id="${w.id}">Claim wBLOZ</button>
-          <span class="wrap-meta">You pay BNB gas · 0% bridge fee</span>
+          <span class="wrap-meta">You pay BNB gas · ${bridgeFeePct().toFixed(1)}% bridge fee</span>
         </div>`
       : "";
 
@@ -603,10 +633,10 @@
       : u.status === "pending"
       ? `<p class="wrap-hint">Unwrap confirmed on BSC (${Number(u.amountBloz).toFixed(8)} wBLOZ burned). ` +
         `Payout target: <strong>${payout != null ? payout.toFixed(8) : "?"} BLOZ</strong> to <code>${u.bz1_address}</code> ` +
-        `(after ${fee.toFixed(8)} BLOZ network fee).</p>`
+        `(after ${bridgeFeePct().toFixed(1)}% bridge fee + ${fee.toFixed(8)} BLOZ network fee).</p>`
       : u.status === "sent"
         ? `<p class="wrap-hint wrap-hint--ok">Sent <strong>${Number(u.payout_bloz ?? payout ?? u.amountBloz).toFixed(8)} BLOZ</strong> ` +
-        `to <code>${u.bz1_address}</code> (${Number(u.amountBloz).toFixed(8)} wBLOZ burned, ${fee.toFixed(8)} fee deducted).</p>`
+        `to <code>${u.bz1_address}</code> (${Number(u.amountBloz).toFixed(8)} wBLOZ burned, ${bridgeFeePct().toFixed(1)}% bridge fee + ${fee.toFixed(8)} network fee deducted).</p>`
         : `<p class="wrap-hint wrap-hint--warn">Payout failed — check your bz1 address and try again or contact support.</p>`;
 
     return `
@@ -624,6 +654,10 @@
           <div class="wrap-row">
             <span class="wrap-label">BLOZ payout</span>
             <span class="wrap-value"><strong>${payout != null ? payout.toFixed(8) : "—"}</strong></span>
+          </div>
+          <div class="wrap-row">
+            <span class="wrap-label">Bridge fee</span>
+            <span class="wrap-value">${bridgeFeePct().toFixed(1)}%</span>
           </div>
           <div class="wrap-row">
             <span class="wrap-label">Network fee</span>
@@ -675,7 +709,7 @@
     }
     const payout = calcUnwrapPayout(Number(amountStr));
     if (payout == null) {
-      alert(`Amount too small. Payout must exceed ${unwrapNetworkFee().toFixed(8)} BLOZ network fee.`);
+      alert(`Amount too small. Payout must stay above zero after the ${bridgeFeePct().toFixed(1)}% bridge fee and ${unwrapNetworkFee().toFixed(8)} BLOZ network fee.`);
       return;
     }
     if (Number(amountStr) > Number(status.bridgeBloz ?? 0)) {
@@ -709,7 +743,7 @@
       $("unwrap-status").innerHTML =
         `Unwrap submitted: <a href="https://bscscan.com/tx/${tx.hash}" target="_blank" rel="noopener">View on BscScan</a><br>` +
         `You will receive about <strong>${payout.toFixed(8)} BLOZ</strong> at <code>${bz1}</code> ` +
-        `( ${Number(amountStr).toFixed(8)} wBLOZ burned, ${unwrapNetworkFee().toFixed(8)} network fee deducted ).`;
+        `( ${Number(amountStr).toFixed(8)} wBLOZ burned, ${bridgeFeePct().toFixed(1)}% bridge fee + ${unwrapNetworkFee().toFixed(8)} network fee deducted ).`;
       await tx.wait();
       $("unwrap-status").innerHTML +=
         `<br><br>Confirmed on BSC. Payout usually follows within a few minutes — see <strong>Your unwrap requests</strong> below.`;
