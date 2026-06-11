@@ -5,10 +5,13 @@ import { config } from "./config.js";
 import {
   ensureBridgeWallet,
   ensurePublicReserveAddress,
+  bridgeFeeBloz,
+  feeBz1Address,
   findRecentPayoutSend,
   getBridgeBalance,
   getDepositSenderBz1,
   listRecentReceives,
+  sendBridgeFee,
   sendBloz,
   unitsToBloz,
   unwrapNetworkFeeBloz,
@@ -26,14 +29,18 @@ import {
 import {
   expireOldWraps,
   finalizeUnwrapIfTxid,
+  getMintedWrapsPendingFee,
   getState,
   getUnwrapsNeedingPayout,
+  getUnwrapsPendingFee,
   getWrapByDeposit,
   markWrapClaimable,
   markWrapMintedFromClaim,
   recordUnwrapSendFailure,
   setState,
+  setUnwrapFeeSent,
   setUnwrapPayoutTxid,
+  setWrapFeeSent,
   tryClaimUnwrapSend,
   upsertUnwrap,
 } from "./db.js";
@@ -90,21 +97,51 @@ export async function pollWrapDeposits(db: Database.Database): Promise<void> {
 }
 
 export async function pollClaimEvents(db: Database.Database): Promise<void> {
-  if (!config.bsc.wrapClaimAddress) return;
+  try {
+    if (!config.bsc.wrapClaimAddress) return;
 
-  const last = getState(db, "last_claim_block");
-  let fromBlock = last ? BigInt(last) + 1n : (await getLatestBlock()) - 5000n;
-  if (fromBlock < 0n) fromBlock = 0n;
+    const last = getState(db, "last_claim_block");
+    let fromBlock = last ? BigInt(last) + 1n : (await getLatestBlock()) - 5000n;
+    if (fromBlock < 0n) fromBlock = 0n;
 
-  const events = await fetchClaimEvents(fromBlock);
-  for (const ev of events) {
-    markWrapMintedFromClaim(db, ev.wrapId, ev.txHash);
-    console.log(`Claim confirmed on-chain for wrap ${ev.wrapId} (${ev.txHash})`);
+    const events = await fetchClaimEvents(fromBlock);
+    for (const ev of events) {
+      markWrapMintedFromClaim(db, ev.wrapId, ev.txHash);
+      console.log(`Claim confirmed on-chain for wrap ${ev.wrapId} (${ev.txHash})`);
+    }
+
+    if (events.length > 0) {
+      const maxBlock = events.reduce((m, e) => (e.blockNumber > m ? e.blockNumber : m), 0n);
+      setState(db, "last_claim_block", maxBlock.toString());
+    }
+  } finally {
+    // Always sweep wrap fees — must not depend on BSC RPC succeeding.
+    await processWrapFees(db);
   }
+}
 
-  if (events.length > 0) {
-    const maxBlock = events.reduce((m, e) => (e.blockNumber > m ? e.blockNumber : m), 0n);
-    setState(db, "last_claim_block", maxBlock.toString());
+async function processWrapFees(db: Database.Database): Promise<void> {
+  if (!feeBz1Address()) return;
+
+  for (const wrap of getMintedWrapsPendingFee(db)) {
+    if (!wrap.bloz_amount) continue;
+    const sinceMs = wrap.claimable_at ?? wrap.created_at;
+
+    const fee = bridgeFeeBloz(wrap.bloz_amount);
+    const bal = await getBridgeBalance();
+    if (bal < fee) {
+      console.warn(`Insufficient bridge BLOZ for wrap fee ${wrap.id} (need ${fee}, have ${bal})`);
+      continue;
+    }
+
+    try {
+      const result = await sendBridgeFee(wrap.bloz_amount, `wrap ${wrap.id}`, sinceMs);
+      if (result) {
+        setWrapFeeSent(db, wrap.id, result.feeBloz, result.txid);
+      }
+    } catch (err) {
+      console.error(`Wrap fee failed ${wrap.id}:`, err);
+    }
   }
 }
 
@@ -160,8 +197,11 @@ async function processUnwrapPayouts(db: Database.Database): Promise<void> {
     }
 
     const bal = await getBridgeBalance();
-    if (bal < payout) {
-      console.warn(`Insufficient bridge BLOZ for unwrap ${req.unwrap_id} (need ${payout}, have ${bal})`);
+    const fee = feeBz1Address() ? bridgeFeeBloz(unitsToBloz(BigInt(req.amount_units))) : 0;
+    if (bal < payout + fee) {
+      console.warn(
+        `Insufficient bridge BLOZ for unwrap ${req.unwrap_id} (need ${payout}${fee > 0 ? ` + ${fee} fee` : ""}, have ${bal})`
+      );
       continue;
     }
 
@@ -177,6 +217,21 @@ async function processUnwrapPayouts(db: Database.Database): Promise<void> {
       console.log(
         `Unwrap ${req.unwrap_id}: sent ${payout} BLOZ -> ${req.bz1_address} (burned ${burned}, bridge fee + network fee ${unwrapNetworkFeeBloz()}) (${txid})`
       );
+
+      if (feeBz1Address()) {
+        try {
+          const feeResult = await sendBridgeFee(
+            burned,
+            `unwrap ${req.unwrap_id}`,
+            req.last_attempt_at ?? req.created_at
+          );
+          if (feeResult) {
+            setUnwrapFeeSent(db, req.unwrap_id, feeResult.feeBloz, feeResult.txid);
+          }
+        } catch (err) {
+          console.error(`Unwrap fee failed ${req.unwrap_id}:`, err);
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Unwrap payout attempt failed ${req.unwrap_id}:`, msg);
@@ -205,7 +260,38 @@ export async function pollUnwrapEvents(db: Database.Database): Promise<void> {
     setState(db, "last_unwrap_block", maxBlock.toString());
   }
 
-  await processUnwrapPayouts(db);
+  try {
+    await processUnwrapPayouts(db);
+  } finally {
+    await processUnwrapFees(db);
+  }
+}
+
+async function processUnwrapFees(db: Database.Database): Promise<void> {
+  if (!feeBz1Address()) return;
+
+  for (const req of getUnwrapsPendingFee(db)) {
+    const burned = unitsToBloz(BigInt(req.amount_units));
+    const fee = bridgeFeeBloz(burned);
+    const bal = await getBridgeBalance();
+    if (bal < fee) {
+      console.warn(`Insufficient bridge BLOZ for unwrap fee ${req.unwrap_id} (need ${fee}, have ${bal})`);
+      continue;
+    }
+
+    try {
+      const result = await sendBridgeFee(
+        burned,
+        `unwrap ${req.unwrap_id}`,
+        req.last_attempt_at ?? req.created_at
+      );
+      if (result) {
+        setUnwrapFeeSent(db, req.unwrap_id, result.feeBloz, result.txid);
+      }
+    } catch (err) {
+      console.error(`Unwrap fee retry failed ${req.unwrap_id}:`, err);
+    }
+  }
 }
 
 export async function getReserveStats(db: Database.Database): Promise<{
@@ -229,6 +315,7 @@ export async function getReserveStats(db: Database.Database): Promise<{
 export function startWatchers(db: Database.Database): void {
   setInterval(() => {
     pollWrapDeposits(db).catch((e) => console.error("wrap poll", e));
+    processWrapFees(db).catch((e) => console.error("wrap fee sweep", e));
   }, config.bsc.blozPollMs);
 
   setInterval(() => {

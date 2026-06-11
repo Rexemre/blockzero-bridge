@@ -97,15 +97,14 @@ export async function findRecentPayoutSend(
 }
 
 export async function sendBloz(toAddress: string, amountBloz: number): Promise<string> {
+  // Bridge node often has no fee estimates yet — fee_rate=1 sat/vB (same as skim-fee-surplus.py).
   const txid = await runCli([
+    "-named",
     "sendtoaddress",
-    toAddress,
-    amountBloz.toFixed(8),
-    "",
-    "",
-    "false",
-    "true",
-    "6",
+    `address=${toAddress}`,
+    `amount=${amountBloz.toFixed(8)}`,
+    "fee_rate=1",
+    "replaceable=true",
   ]);
   return txid;
 }
@@ -186,6 +185,41 @@ export function bridgeFeeBps(): number {
 export function applyBridgeFee(amountBloz: number): number {
   const net = amountBloz * (1 - config.bloz.bridgeFeeBps / 10_000);
   return Math.floor(net * 1e8) / 1e8;
+}
+
+/** Gross bridge service fee in BLOZ (floored to 8 decimals). */
+export function bridgeFeeBloz(grossBloz: number): number {
+  const fee = grossBloz - applyBridgeFee(grossBloz);
+  return Math.floor(fee * 1e8) / 1e8;
+}
+
+export function feeBz1Address(): string | null {
+  return config.bloz.feeBz1Address;
+}
+
+/** Send the bridge service fee to BRIDGE_FEE_BZ1_ADDRESS (no-op if unset). */
+export async function sendBridgeFee(
+  grossBloz: number,
+  context: string,
+  recoverSinceMs?: number
+): Promise<{ txid: string; feeBloz: number } | null> {
+  const addr = feeBz1Address();
+  if (!addr) return null;
+
+  const fee = bridgeFeeBloz(grossBloz);
+  if (fee <= 0) return null;
+
+  if (recoverSinceMs != null) {
+    const found = await findRecentPayoutSend(addr, fee, recoverSinceMs);
+    if (found) {
+      console.log(`Bridge fee ${fee} BLOZ -> ${addr} (${context}) recovered (${found})`);
+      return { txid: found, feeBloz: fee };
+    }
+  }
+
+  const txid = await sendBloz(addr, fee);
+  console.log(`Bridge fee ${fee} BLOZ -> ${addr} (${context}) (${txid})`);
+  return { txid, feeBloz: fee };
 }
 
 /** wBLOZ minted for a confirmed deposit (deposit minus bridge fee). */
