@@ -37,6 +37,8 @@ export interface WrapRequest {
   refund_attempt_count: number;
   refund_last_attempt_at: number | null;
   refund_last_error: string | null;
+  fee_bloz: number | null;
+  fee_txid: string | null;
 }
 
 export interface OrphanDeposit {
@@ -66,6 +68,8 @@ export interface UnwrapRequest {
   last_attempt_at: number | null;
   last_error: string | null;
   created_at: number;
+  fee_bloz: number | null;
+  fee_txid: string | null;
 }
 
 export function openDb(dbPath: string): Database.Database {
@@ -123,11 +127,23 @@ export function openDb(dbPath: string): Database.Database {
     ["refund_attempt_count", "INTEGER NOT NULL DEFAULT 0"],
     ["refund_last_attempt_at", "INTEGER"],
     ["refund_last_error", "TEXT"],
+    ["fee_bloz", "REAL"],
+    ["fee_txid", "TEXT"],
   ] as const) {
     try {
       db.prepare(`SELECT ${col} FROM wrap_requests LIMIT 1`).get();
     } catch {
       db.exec(`ALTER TABLE wrap_requests ADD COLUMN ${col} ${def}`);
+    }
+  }
+  for (const [col, def] of [
+    ["fee_bloz", "REAL"],
+    ["fee_txid", "TEXT"],
+  ] as const) {
+    try {
+      db.prepare(`SELECT ${col} FROM unwrap_requests LIMIT 1`).get();
+    } catch {
+      db.exec(`ALTER TABLE unwrap_requests ADD COLUMN ${col} ${def}`);
     }
   }
   db.exec(`
@@ -236,6 +252,27 @@ export function markWrapMintedFromClaim(db: Database.Database, id: string, mintT
   db.prepare(
     `UPDATE wrap_requests SET status='minted', mint_tx_hash=? WHERE id=? AND status IN ('claimable', 'refunding')`
   ).run(mintTx, id);
+}
+
+export function getMintedWrapsPendingFee(db: Database.Database): WrapRequest[] {
+  return db
+    .prepare(
+      `SELECT * FROM wrap_requests
+       WHERE status='minted' AND fee_txid IS NULL AND bloz_amount IS NOT NULL
+       ORDER BY claimable_at ASC`
+    )
+    .all() as WrapRequest[];
+}
+
+export function setWrapFeeSent(
+  db: Database.Database,
+  id: string,
+  feeBloz: number,
+  feeTxid: string
+): void {
+  db.prepare(
+    `UPDATE wrap_requests SET fee_bloz=?, fee_txid=? WHERE id=? AND fee_txid IS NULL`
+  ).run(feeBloz, feeTxid, id);
 }
 
 /** On-chain claim detected while DB still shows claimable/refunding (e.g. before refund). */
@@ -359,6 +396,26 @@ export function getOrphansNeedingRefund(db: Database.Database): OrphanDeposit[] 
     .all() as OrphanDeposit[];
 }
 
+/** Deposit tx already credited to a successful wrap — never refund as orphan. */
+export function isMintedWrapDepositTx(db: Database.Database, txid: string): boolean {
+  const row = db
+    .prepare(`SELECT 1 FROM wrap_requests WHERE bloz_txid=? AND status='minted' LIMIT 1`)
+    .get(txid);
+  return row != null;
+}
+
+/** Cancel orphan rows that wrongly target minted wrap deposits (e.g. after relayer restart bug). */
+export function cancelErroneousOrphanDeposits(db: Database.Database): number {
+  const r = db
+    .prepare(
+      `UPDATE orphan_deposits SET status='cancelled', refund_last_error='minted_wrap_deposit'
+       WHERE status IN ('pending', 'failed')
+         AND txid IN (SELECT bloz_txid FROM wrap_requests WHERE status='minted' AND bloz_txid IS NOT NULL)`
+    )
+    .run();
+  return r.changes;
+}
+
 export function tryClaimOrphanRefund(
   db: Database.Database,
   txid: string,
@@ -421,7 +478,15 @@ export function upsertUnwrap(
   db: Database.Database,
   row: Omit<
     UnwrapRequest,
-    "bloz_txid" | "payout_bloz" | "attempt_count" | "last_attempt_at" | "last_error" | "created_at" | "status"
+    | "bloz_txid"
+    | "payout_bloz"
+    | "attempt_count"
+    | "last_attempt_at"
+    | "last_error"
+    | "created_at"
+    | "status"
+    | "fee_bloz"
+    | "fee_txid"
   > & { status?: UnwrapStatus }
 ): void {
   db.prepare(
@@ -488,6 +553,27 @@ export function finalizeUnwrapIfTxid(db: Database.Database, unwrapId: number): b
     )
     .run(unwrapId);
   return r.changes > 0;
+}
+
+export function setUnwrapFeeSent(
+  db: Database.Database,
+  unwrapId: number,
+  feeBloz: number,
+  feeTxid: string
+): void {
+  db.prepare(
+    `UPDATE unwrap_requests SET fee_bloz=?, fee_txid=? WHERE unwrap_id=? AND fee_txid IS NULL`
+  ).run(feeBloz, feeTxid, unwrapId);
+}
+
+export function getUnwrapsPendingFee(db: Database.Database): UnwrapRequest[] {
+  return db
+    .prepare(
+      `SELECT * FROM unwrap_requests
+       WHERE status='sent' AND fee_txid IS NULL
+       ORDER BY unwrap_id ASC`
+    )
+    .all() as UnwrapRequest[];
 }
 
 export function recordUnwrapSendFailure(

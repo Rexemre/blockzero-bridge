@@ -12,6 +12,8 @@ import {
 import {
   getOrphansNeedingRefund,
   getWrapsNeedingRefund,
+  isMintedWrapDepositTx,
+  cancelErroneousOrphanDeposits,
   markOrphanRefunded,
   markWrapMintedOnChain,
   markWrapRefunded,
@@ -48,6 +50,8 @@ export function classifyDepositForWrap(
   }
 
   if (wrap.status === "minted" || wrap.status === "refunded" || wrap.status === "refunding") {
+    // Already processed wrap deposit — do not re-queue on relayer restart (poll sees old receives).
+    if (wrap.bloz_txid === tx.txid) return "skip";
     return {
       txid: tx.txid,
       depositAddress: tx.address,
@@ -229,6 +233,13 @@ export async function processOrphanRefunds(db: Database.Database): Promise<void>
   const maxAttempts = config.bloz.refundMaxAttempts;
 
   for (const row of getOrphansNeedingRefund(db)) {
+    if (isMintedWrapDepositTx(db, row.txid)) {
+      console.warn(
+        `Skip orphan refund ${row.txid}: deposit already belongs to a minted wrap`
+      );
+      continue;
+    }
+
     const sender = await resolveSenderBz1(db, row.txid, row.sender_bz1);
 
     await executeRefund(db, {

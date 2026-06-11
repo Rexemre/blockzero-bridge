@@ -3,7 +3,7 @@ import express from "express";
 import path from "node:path";
 import fs from "node:fs";
 import { config } from "./config.js";
-import { openDb } from "./db.js";
+import { openDb, cancelErroneousOrphanDeposits } from "./db.js";
 import { registerApi } from "./api.js";
 import { initBridgeWallet, startWatchers } from "./watcher.js";
 
@@ -11,6 +11,10 @@ async function main() {
   fs.mkdirSync(path.dirname(config.dbPath), { recursive: true });
 
   const db = openDb(config.dbPath);
+  const cancelled = cancelErroneousOrphanDeposits(db);
+  if (cancelled > 0) {
+    console.warn(`Cancelled ${cancelled} erroneous orphan deposit(s) (minted wrap txs)`);
+  }
   await initBridgeWallet(db);
 
   const app = express();
