@@ -14,7 +14,17 @@ Wrap native **BLOZ** (Block Zero mainnet) to **wBLOZ** (BEP-20 on BNB Smart Chai
 
 **Security:** [SECURITY.md](./SECURITY.md)
 
+## Official links
 
+| | |
+|---|---|
+| **Website** | https://bloz.org |
+| **Pool** | https://pool.bloz.org *(test release)* |
+| **Explorer** | https://explorer.bloz.org · testnet: https://texplorer.bloz.org |
+| **Bridge** | https://bridge.bloz.org |
+| **Discord** | https://discord.gg/FbJzrwAU2W |
+| **X (Twitter)** | https://x.com/BlockZeroBLOZ |
+| **Full list** | [official-links.md](https://github.com/Rexemre/blockzero-docs/blob/main/official-links.md) |
 
 ## Architecture
 
