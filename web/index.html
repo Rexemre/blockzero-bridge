@@ -10,12 +10,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="https://bloz.org/assets/favicon.png" />
   <meta name="theme-color" content="#05070A" />
+  <link rel="stylesheet" href="https://bloz.org/assets/bloz-header.css" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <nav class="bz-suite" aria-label="Block Zero sites">
     <a class="bz-suite-brand" href="https://bloz.org">
-      <img src="https://bloz.org/assets/bloz-mark.png" alt="" width="55" height="55" />
+      <img src="https://bloz.org/assets/bloz-mark.png" alt="" width="83" height="83" />
       <span>BLOCK&nbsp;ZERO</span>
     </a>
     <div class="bz-suite-links">
@@ -24,15 +25,18 @@
       <a href="https://explorer.bloz.org">Explorer</a>
       <a href="https://bridge.bloz.org" class="active">Bridge</a>
     </div>
+    <span class="bz-suite-live"><span class="dot"></span><span id="suite-height">MAINNET LIVE</span></span>
   </nav>
-  <header class="header">
-    <span class="badge">BSC Bridge</span>
-    <button id="connect" class="btn">Connect Wallet</button>
-  </header>
 
   <main class="main">
     <section class="hero">
-      <h1>Wrap BLOZ → wBLOZ</h1>
+      <div class="page-toolbar">
+        <div>
+          <h1>Wrap BLOZ → wBLOZ</h1>
+          <span class="badge">BSC Bridge</span>
+        </div>
+        <button id="connect" class="btn">Connect Wallet</button>
+      </div>
       <p class="lede">Move native BLOZ to BNB Smart Chain as <strong>wBLOZ</strong> (ERC-20, 8 decimals). Fully backed reserve. Unwrap anytime. <strong>3.9% bridge fee</strong> per wrap and unwrap.</p>
       <div id="reserves" class="reserves">Loading reserves…</div>
     </section>
@@ -121,6 +125,7 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
+  <script src="https://bloz.org/assets/bloz-header.js" defer></script>
   <script src="./app.js"></script>
 </body>
 </html>
