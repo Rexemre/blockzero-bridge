@@ -9,6 +9,7 @@ import { config } from "./config.js";
 import {
   blozToUnits,
   bridgeFeeBps,
+  feeBz1Address,
   unwrapNetworkFeeBloz,
   unwrapPayoutBloz,
   wrapMintBloz,
@@ -35,6 +36,10 @@ import {
   markWrapMintedFromClaim,
 
   markWrapMintedOnChain,
+
+  getOutstandingDebtFor,
+
+  setWrapDebtWithheld,
 
   type WrapRequest,
 
@@ -236,6 +241,8 @@ export function registerApi(app: Express, db: Database.Database): void {
         bridgeFeeBps: bridgeFeeBps(),
 
         bridgeFeePercent: bridgeFeeBps() / 100,
+
+        feeBz1Address: feeBz1Address(),
 
         github: config.meta.githubUrl,
 
@@ -529,9 +536,29 @@ export function registerApi(app: Express, db: Database.Database): void {
 
 
 
-      // Bridge fee: user receives deposit minus fee as wBLOZ; the fee stays
-      // in the bridge reserve (keeps wBLOZ over-backed).
-      const mintBloz = wrapMintBloz(wrap.bloz_amount);
+      // Bridge fee: user receives deposit minus fee as wBLOZ; fee is swept to BRIDGE_FEE_BZ1_ADDRESS after mint.
+      let mintBloz = wrapMintBloz(wrap.bloz_amount);
+
+      // Debt netting: addresses that owe the bridge get their mint reduced;
+      // the withheld native BLOZ stays in the reserve (recovery realized at mint).
+      const debt = getOutstandingDebtFor(db, [wrap.sender_bz1, wrap.evm_address]);
+      if (debt) {
+        const withheld = Math.round(Math.min(mintBloz, debt.outstanding) * 1e8) / 1e8;
+        setWrapDebtWithheld(db, wrap.id, withheld);
+        mintBloz = Math.round((mintBloz - withheld) * 1e8) / 1e8;
+        console.warn(
+          `Wrap ${wrap.id}: withholding ${withheld} wBLOZ against outstanding debt (group ${debt.groupId})`
+        );
+        if (mintBloz <= 0) {
+          res.status(409).json({
+            ok: false,
+            error:
+              "This deposit was applied to an outstanding balance owed to the bridge (erroneous refund recovery). No wBLOZ will be minted.",
+          });
+          return;
+        }
+      }
+
       const amountUnits = blozToUnits(mintBloz);
 
       const deadline = Math.min(

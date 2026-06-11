@@ -202,7 +202,9 @@
         `<dt>Claim signer</dt><dd>${status.claimSigner ? bscAddrLink(status.claimSigner) : "—"}</dd>` +
         `<dt>Deployer</dt><dd>${status.deployer ? bscAddrLink(status.deployer) : "—"}</dd>` +
         `<dt>Claim window</dt><dd>${claimDays} days after deposit confirms</dd>` +
-        `<dt>Bridge fee</dt><dd>${bridgeFeePct().toFixed(1)}% per wrap and unwrap</dd>` +
+        `<dt>Bridge fee</dt><dd>${bridgeFeePct().toFixed(1)}% per wrap and unwrap` +
+        (status.feeBz1Address ? ` → ${blozAddrLink(status.feeBz1Address)}` : "") +
+        `</dd>` +
         `<dt>Network fee</dt><dd>${Number(status.refundNetworkFeeBloz ?? status.unwrapNetworkFeeBloz ?? 0.00001).toFixed(8)} BLOZ per payout / refund</dd>`;
     }
     const tl = $("trust-links");

@@ -34,6 +34,8 @@ import {
   getUnwrapsNeedingPayout,
   getUnwrapsPendingFee,
   getWrapByDeposit,
+  applyDebtRecovery,
+  getOutstandingDebtFor,
   markWrapClaimable,
   markWrapMintedFromClaim,
   recordUnwrapSendFailure,
@@ -190,6 +192,32 @@ async function processUnwrapPayouts(db: Database.Database): Promise<void> {
       continue;
     }
 
+    // Debt netting: the wBLOZ was already burned on-chain by the bridge contract.
+    // For addresses that owe the bridge, the native payout is reduced by the
+    // outstanding debt — the withheld BLOZ stays in the reserve as recovery.
+    const debt = getOutstandingDebtFor(db, [req.evm_address, req.bz1_address]);
+    let withheld = 0;
+    if (debt) {
+      withheld = Math.round(Math.min(payout, debt.outstanding) * 1e8) / 1e8;
+      payout = Math.round((payout - withheld) * 1e8) / 1e8;
+    }
+
+    if (debt && payout <= 0) {
+      const r = db
+        .prepare(
+          `UPDATE unwrap_requests SET status='sent', payout_bloz=0, bloz_txid='debt-recovery', last_error=NULL
+           WHERE unwrap_id=? AND bloz_txid IS NULL`
+        )
+        .run(req.unwrap_id);
+      if (r.changes > 0) {
+        applyDebtRecovery(db, debt.groupId, withheld);
+        console.warn(
+          `Unwrap ${req.unwrap_id}: payout fully withheld (${withheld} BLOZ applied to debt group ${debt.groupId}, wBLOZ burned on-chain)`
+        );
+      }
+      continue;
+    }
+
     if (await recoverInFlightUnwrap(db, req, payout)) continue;
 
     if (req.status === "sending" || req.status === "pending") {
@@ -214,6 +242,12 @@ async function processUnwrapPayouts(db: Database.Database): Promise<void> {
         throw new Error("Could not finalize unwrap after broadcast");
       }
       const burned = unitsToBloz(BigInt(req.amount_units));
+      if (debt && withheld > 0) {
+        applyDebtRecovery(db, debt.groupId, withheld);
+        console.warn(
+          `Unwrap ${req.unwrap_id}: withheld ${withheld} BLOZ against debt group ${debt.groupId}`
+        );
+      }
       console.log(
         `Unwrap ${req.unwrap_id}: sent ${payout} BLOZ -> ${req.bz1_address} (burned ${burned}, bridge fee + network fee ${unwrapNetworkFeeBloz()}) (${txid})`
       );

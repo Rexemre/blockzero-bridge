@@ -4,7 +4,7 @@
 
 Wrap native **BLOZ** (Block Zero mainnet) to **wBLOZ** (BEP-20 on BNB Smart Chain) for DEX liquidity.  
 
-8 decimals. **3.9% bridge fee** per wrap and unwrap (`BRIDGE_FEE_BPS=390`). Unwrap burns wBLOZ and sends native BLOZ back. The fee stays in the BLOZ reserve, so wBLOZ remains over-backed.
+8 decimals. **3.9% bridge fee** per wrap and unwrap (`BRIDGE_FEE_BPS=390`). Unwrap burns wBLOZ and sends native BLOZ back. The fee is sent to `BRIDGE_FEE_BZ1_ADDRESS` (separate treasury wallet).
 
 
 
