@@ -37,10 +37,6 @@ import {
 
   markWrapMintedOnChain,
 
-  getOutstandingDebtFor,
-
-  setWrapDebtWithheld,
-
   type WrapRequest,
 
 } from "./db.js";
@@ -60,6 +56,20 @@ const uuidRe =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const bz1Re = /^bz1[a-z0-9]{10,}$/i;
+
+/** Normalize unwrap row for API responses. */
+function sanitizeUnwrapRow(row: ReturnType<typeof listUnwrapsForEvm>[number]) {
+  const amountBloz = Number(row.amount_units) / 1e8;
+  let payoutBloz = row.payout_bloz;
+  if (payoutBloz == null) {
+    try {
+      payoutBloz = unwrapPayoutBloz(amountBloz);
+    } catch {
+      payoutBloz = null;
+    }
+  }
+  return { ...row, amountBloz, payoutBloz, bloz_txid: row.bloz_txid };
+}
 
 
 
@@ -537,27 +547,7 @@ export function registerApi(app: Express, db: Database.Database): void {
 
 
       // Bridge fee: user receives deposit minus fee as wBLOZ; fee is swept to BRIDGE_FEE_BZ1_ADDRESS after mint.
-      let mintBloz = wrapMintBloz(wrap.bloz_amount);
-
-      // Debt netting: addresses that owe the bridge get their mint reduced;
-      // the withheld native BLOZ stays in the reserve (recovery realized at mint).
-      const debt = getOutstandingDebtFor(db, [wrap.sender_bz1, wrap.evm_address]);
-      if (debt) {
-        const withheld = Math.round(Math.min(mintBloz, debt.outstanding) * 1e8) / 1e8;
-        setWrapDebtWithheld(db, wrap.id, withheld);
-        mintBloz = Math.round((mintBloz - withheld) * 1e8) / 1e8;
-        console.warn(
-          `Wrap ${wrap.id}: withholding ${withheld} wBLOZ against outstanding debt (group ${debt.groupId})`
-        );
-        if (mintBloz <= 0) {
-          res.status(409).json({
-            ok: false,
-            error:
-              "This deposit was applied to an outstanding balance owed to the bridge (erroneous refund recovery). No wBLOZ will be minted.",
-          });
-          return;
-        }
-      }
+      const mintBloz = wrapMintBloz(wrap.bloz_amount);
 
       const amountUnits = blozToUnits(mintBloz);
 
@@ -643,37 +633,11 @@ export function registerApi(app: Express, db: Database.Database): void {
       const fee = unwrapNetworkFeeBloz();
 
       const requests = listUnwrapsForEvm(db, evmAddress).map((row) => {
-
-        const amountBloz = Number(row.amount_units) / 1e8;
-
-        let payoutBloz = row.payout_bloz;
-
-        if (payoutBloz == null) {
-
-          try {
-
-            payoutBloz = unwrapPayoutBloz(amountBloz);
-
-          } catch {
-
-            payoutBloz = null;
-
-          }
-
-        }
-
+        const sanitized = sanitizeUnwrapRow(row);
         return {
-
-          ...row,
-
-          amountBloz,
-
-          payoutBloz,
-
+          ...sanitized,
           networkFeeBloz: fee,
-
         };
-
       });
 
       res.json({ ok: true, requests, bridgeFeeBps: bridgeFeeBps() });

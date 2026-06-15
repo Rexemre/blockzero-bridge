@@ -3,6 +3,12 @@
   "use strict";
 
   const BSC_CHAIN_ID = "0x38"; // 56 — overridden from /api/status when different
+  const BSC_RPC_URLS = [
+    "https://bsc-dataseed.binance.org/",
+    "https://bsc-dataseed1.binance.org/",
+    "https://bsc-dataseed2.binance.org/",
+    "https://bsc.publicnode.com",
+  ];
   const WBLOZ_ABI = [
     "function approve(address spender, uint256 amount) returns (bool)",
     "function allowance(address owner, address spender) view returns (uint256)",
@@ -17,6 +23,7 @@
   ];
 
   let provider = null;
+  let readProvider = null;
   let signer = null;
   let account = null;
   let status = null;
@@ -165,6 +172,32 @@
       `(${bridgeFeePct().toFixed(1)}% bridge fee + ${unwrapNetworkFee().toFixed(8)} network fee deducted).`;
   }
 
+  function rpcErrorHint(err) {
+    const msg = String(err?.message || err || "");
+    const code = err?.code ?? err?.error?.code;
+    const httpStatus = err?.error?.data?.httpStatus ?? err?.data?.httpStatus;
+    if (httpStatus === 401 || msg.includes("401") || msg.includes("Unauthorized")) {
+      return "MetaMask could not reach your BSC RPC (401 Unauthorized). " +
+        "Open MetaMask → Settings → Networks → BNB Smart Chain → set RPC URL to " +
+        "https://bsc-dataseed.binance.org/ (or another public BSC endpoint), then reload and connect again.";
+    }
+    if (code === 4902) return msg;
+    return msg || "Wallet connection failed.";
+  }
+
+  function getReadProvider() {
+    if (!readProvider) {
+      readProvider = new ethers.FallbackProvider(
+        BSC_RPC_URLS.map((url, i) => ({
+          provider: new ethers.JsonRpcProvider(url, 56),
+          priority: i,
+          stallTimeout: 2500,
+        }))
+      );
+    }
+    return readProvider;
+  }
+
   function bscAddrLink(addr) {
     if (!addr || !status?.explorerBsc) return `<code>${addr}</code>`;
     return `<a href="${status.explorerBsc}/address/${addr}" target="_blank" rel="noopener"><code>${addr}</code></a>`;
@@ -273,7 +306,7 @@
             chainId: hex,
             chainName: "BNB Smart Chain",
             nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
-            rpcUrls: ["https://bsc-dataseed.binance.org/"],
+            rpcUrls: BSC_RPC_URLS,
             blockExplorerUrls: ["https://bscscan.com"],
           }],
         });
@@ -291,6 +324,7 @@
     provider = new ethers.BrowserProvider(window.ethereum);
     signer = await provider.getSigner();
     account = await signer.getAddress();
+    readProvider = null;
     $("connect").textContent = account.slice(0, 6) + "…" + account.slice(-4);
     $("create-wrap").disabled = false;
     $("do-unwrap").disabled = false;
@@ -299,7 +333,7 @@
     refreshUnwrapHistory();
   }
 
-  $("connect").addEventListener("click", () => connect().catch((e) => alert(e.message)));
+  $("connect").addEventListener("click", () => connect().catch((e) => alert(rpcErrorHint(e))));
 
   document.querySelectorAll(".tab").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -607,7 +641,7 @@
       return;
     }
     try {
-      const wBLOZ = new ethers.Contract(status.wBLOZ, WBLOZ_ABI, provider);
+      const wBLOZ = new ethers.Contract(status.wBLOZ, WBLOZ_ABI, getReadProvider());
       const [bal, decimals] = await Promise.all([wBLOZ.balanceOf(account), wBLOZ.decimals()]);
       const formatted = ethers.formatUnits(bal, decimals);
       el.innerHTML = `Your wBLOZ balance: <strong>${formatted}</strong>`;
@@ -635,7 +669,8 @@
       : u.status === "pending"
       ? `<p class="wrap-hint">Unwrap confirmed on BSC (${Number(u.amountBloz).toFixed(8)} wBLOZ burned). ` +
         `Payout target: <strong>${payout != null ? payout.toFixed(8) : "?"} BLOZ</strong> to <code>${u.bz1_address}</code> ` +
-        `(after ${bridgeFeePct().toFixed(1)}% bridge fee + ${fee.toFixed(8)} BLOZ network fee).</p>`
+        `(after ${bridgeFeePct().toFixed(1)}% bridge fee + ${fee.toFixed(8)} BLOZ network fee). ` +
+        `Native payouts usually arrive within a few minutes; during high load it can take longer.</p>`
       : u.status === "sent"
         ? `<p class="wrap-hint wrap-hint--ok">Sent <strong>${Number(u.payout_bloz ?? payout ?? u.amountBloz).toFixed(8)} BLOZ</strong> ` +
         `to <code>${u.bz1_address}</code> (${Number(u.amountBloz).toFixed(8)} wBLOZ burned, ${bridgeFeePct().toFixed(1)}% bridge fee + ${fee.toFixed(8)} network fee deducted).</p>`

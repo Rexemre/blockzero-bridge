@@ -164,20 +164,6 @@ export function openDb(dbPath: string): Database.Database {
       PRIMARY KEY (txid, deposit_address)
     );
   `);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS debt_groups (
-      id TEXT PRIMARY KEY,
-      debt_bloz REAL NOT NULL,
-      recovered_bloz REAL NOT NULL DEFAULT 0,
-      reason TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS debt_addresses (
-      address TEXT PRIMARY KEY,
-      group_id TEXT NOT NULL REFERENCES debt_groups(id)
-    );
-  `);
   try {
     db.prepare("SELECT debt_withheld_bloz FROM wrap_requests LIMIT 1").get();
   } catch {
@@ -269,25 +255,9 @@ export function markWrapMinted(
 }
 
 export function markWrapMintedFromClaim(db: Database.Database, id: string, mintTx: string): void {
-  const r = db
-    .prepare(
-      `UPDATE wrap_requests SET status='minted', mint_tx_hash=? WHERE id=? AND status IN ('claimable', 'refunding')`
-    )
-    .run(mintTx, id);
-  if (r.changes === 0) return;
-  // Realize debt recovery: the withheld portion of the deposit stays in the reserve.
-  const wrap = getWrapById(db, id);
-  const withheld = wrap?.debt_withheld_bloz ?? 0;
-  if (!wrap || withheld <= 0) return;
-  const debt = getOutstandingDebtFor(db, [wrap.sender_bz1, wrap.evm_address]);
-  if (debt) {
-    const applied = applyDebtRecovery(db, debt.groupId, withheld);
-    if (applied > 0) {
-      console.log(
-        `Debt recovery: kept ${applied} BLOZ from wrap ${id} deposit (group ${debt.groupId})`
-      );
-    }
-  }
+  db.prepare(
+    `UPDATE wrap_requests SET status='minted', mint_tx_hash=? WHERE id=? AND status IN ('claimable', 'refunding')`
+  ).run(mintTx, id);
 }
 
 export function getMintedWrapsPendingFee(db: Database.Database): WrapRequest[] {
@@ -450,89 +420,6 @@ export function cancelErroneousOrphanDeposits(db: Database.Database): number {
     )
     .run();
   return r.changes;
-}
-
-// --- Debt ledger -------------------------------------------------------------
-// Addresses that wrongly received bridge funds (e.g. the refund-bug recipients)
-// owe the bridge. Their future wraps mint less wBLOZ and their unwrap payouts
-// are reduced until the debt is recovered. Addresses in the same group share
-// one debt (same actor, multiple addresses).
-
-export interface DebtGroup {
-  id: string;
-  debt_bloz: number;
-  recovered_bloz: number;
-  reason: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
-const roundBloz = (n: number): number => Math.round(n * 1e8) / 1e8;
-
-/** Idempotent: creates the group and links addresses; never resets recovered_bloz. */
-export function seedDebtGroup(
-  db: Database.Database,
-  id: string,
-  debtBloz: number,
-  reason: string,
-  addresses: string[]
-): void {
-  const now = Date.now();
-  db.prepare(
-    `INSERT OR IGNORE INTO debt_groups (id, debt_bloz, recovered_bloz, reason, created_at, updated_at)
-     VALUES (?, ?, 0, ?, ?, ?)`
-  ).run(id, debtBloz, reason, now, now);
-  const ins = db.prepare(`INSERT OR IGNORE INTO debt_addresses (address, group_id) VALUES (?, ?)`);
-  for (const a of addresses) ins.run(a.toLowerCase(), id);
-}
-
-/** Outstanding debt for any of the given addresses (bz1 or 0x, case-insensitive). */
-export function getOutstandingDebtFor(
-  db: Database.Database,
-  addresses: Array<string | null | undefined>
-): { groupId: string; outstanding: number } | undefined {
-  const addrs = addresses.filter((a): a is string => !!a).map((a) => a.toLowerCase());
-  if (addrs.length === 0) return undefined;
-  const placeholders = addrs.map(() => "?").join(",");
-  const row = db
-    .prepare(
-      `SELECT g.id, g.debt_bloz, g.recovered_bloz FROM debt_groups g
-       JOIN debt_addresses a ON a.group_id = g.id
-       WHERE a.address IN (${placeholders}) AND g.debt_bloz - g.recovered_bloz > 0.00000001
-       LIMIT 1`
-    )
-    .get(...addrs) as { id: string; debt_bloz: number; recovered_bloz: number } | undefined;
-  if (!row) return undefined;
-  return { groupId: row.id, outstanding: roundBloz(row.debt_bloz - row.recovered_bloz) };
-}
-
-/** Credits `amount` against the group's debt; returns the amount actually applied. */
-export function applyDebtRecovery(
-  db: Database.Database,
-  groupId: string,
-  amount: number
-): number {
-  const row = db
-    .prepare(`SELECT debt_bloz, recovered_bloz FROM debt_groups WHERE id=?`)
-    .get(groupId) as { debt_bloz: number; recovered_bloz: number } | undefined;
-  if (!row) return 0;
-  const outstanding = roundBloz(row.debt_bloz - row.recovered_bloz);
-  const applied = roundBloz(Math.min(Math.max(outstanding, 0), Math.max(amount, 0)));
-  if (applied <= 0) return 0;
-  db.prepare(`UPDATE debt_groups SET recovered_bloz = recovered_bloz + ?, updated_at=? WHERE id=?`).run(
-    applied,
-    Date.now(),
-    groupId
-  );
-  return applied;
-}
-
-export function setWrapDebtWithheld(db: Database.Database, wrapId: string, amount: number): void {
-  db.prepare(`UPDATE wrap_requests SET debt_withheld_bloz=? WHERE id=?`).run(amount, wrapId);
-}
-
-export function listDebtGroups(db: Database.Database): DebtGroup[] {
-  return db.prepare(`SELECT * FROM debt_groups ORDER BY created_at`).all() as DebtGroup[];
 }
 
 export function tryClaimOrphanRefund(

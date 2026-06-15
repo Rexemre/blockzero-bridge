@@ -10,8 +10,6 @@ import {
   unwrapNetworkFeeBloz,
 } from "./bloz.js";
 import {
-  applyDebtRecovery,
-  getOutstandingDebtFor,
   getOrphansNeedingRefund,
   getWrapsNeedingRefund,
   isMintedWrapDepositTx,
@@ -156,36 +154,6 @@ async function executeRefund(
 
   if (!opts.senderBz1) {
     console.warn(`Refund ${opts.kind} ${opts.id}: sender bz1 unknown for ${opts.txid}, retry later`);
-    return;
-  }
-
-  // Debt netting: refunds to addresses that owe the bridge are reduced by the
-  // outstanding debt (withheld BLOZ stays in the reserve as recovery).
-  const debt = getOutstandingDebtFor(db, [opts.senderBz1]);
-  if (debt) {
-    const withheld = Math.round(Math.min(payout, debt.outstanding) * 1e8) / 1e8;
-    const reduced = Math.round((payout - withheld) * 1e8) / 1e8;
-    if (!opts.markRefunding()) return;
-    if (reduced <= 0) {
-      opts.markRefunded("debt-recovery", 0, opts.senderBz1);
-      const applied = applyDebtRecovery(db, debt.groupId, withheld);
-      console.warn(
-        `Refund ${opts.kind} ${opts.id}: fully withheld ${applied} BLOZ against debt (group ${debt.groupId})`
-      );
-      return;
-    }
-    try {
-      const refundTxid = await sendBloz(opts.senderBz1, reduced);
-      opts.markRefunded(refundTxid, reduced, opts.senderBz1);
-      const applied = applyDebtRecovery(db, debt.groupId, withheld);
-      console.warn(
-        `Refund ${opts.kind} ${opts.id}: withheld ${applied} BLOZ against debt (group ${debt.groupId}), paid ${reduced} (${refundTxid})`
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Refund ${opts.kind} ${opts.id} failed:`, msg);
-      opts.markFailed(msg);
-    }
     return;
   }
 

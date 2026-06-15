@@ -11,7 +11,8 @@ EnvironmentFile=/opt/blockzero-bridge/.env
 ExecStart=/usr/bin/node dist/index.js
 Restart=always
 RestartSec=10
-User=root
+StartLimitIntervalSec=0
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target

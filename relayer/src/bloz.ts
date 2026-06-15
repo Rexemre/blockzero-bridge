@@ -156,6 +156,22 @@ export async function getDepositSenderBz1(txid: string): Promise<string | null> 
   }
 }
 
+const RESERVE_FUNDING_LABELS = ["bridge-reserve-public", "bridge-reserve-funding"] as const;
+
+/** Incoming BLOZ to these labels stays in the bridge wallet (no orphan auto-refund). */
+export async function isBridgeReserveAddress(address: string): Promise<boolean> {
+  for (const label of RESERVE_FUNDING_LABELS) {
+    try {
+      const raw = await runCli(["getaddressesbylabel", label]);
+      const addrs = JSON.parse(raw) as Record<string, unknown>;
+      if (address in addrs) return true;
+    } catch {
+      /* label may not exist yet */
+    }
+  }
+  return false;
+}
+
 /** Stable public address label for reserve transparency (wallet may hold more than this address). */
 export async function ensurePublicReserveAddress(): Promise<string> {
   try {
@@ -167,6 +183,11 @@ export async function ensurePublicReserveAddress(): Promise<string> {
     /* label may not exist yet */
   }
   return runCli(["getnewaddress", "bridge-reserve-public", "bech32"]);
+}
+
+/** One-off top-up address — excluded from orphan refund polling. */
+export async function newReserveFundingAddress(): Promise<string> {
+  return runCli(["getnewaddress", "bridge-reserve-funding", "bech32"]);
 }
 
 export function blozToUnits(amount: number): bigint {

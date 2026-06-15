@@ -61,7 +61,12 @@ export const config = {
   },
 
   bsc: {
-    rpcUrl: process.env.BSC_RPC_URL ?? "https://bsc-dataseed.binance.org/",
+    rpcUrls: (process.env.BSC_RPC_URL ?? "https://bsc-dataseed.binance.org/")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    /** Max block span per eth_getLogs call (public BSC RPCs reject large ranges). */
+    logChunkBlocks: BigInt(num("BSC_LOG_CHUNK_BLOCKS", 2000)),
     chainId: num("BSC_CHAIN_ID", 56),
     operatorKey: req("BSC_OPERATOR_PRIVATE_KEY") as `0x${string}`,
     wBLOZAddress: req("WBLOZ_ADDRESS") as `0x${string}`,

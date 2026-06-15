@@ -10,6 +10,7 @@ import {
   findRecentPayoutSend,
   getBridgeBalance,
   getDepositSenderBz1,
+  isBridgeReserveAddress,
   listRecentReceives,
   sendBridgeFee,
   sendBloz,
@@ -34,8 +35,6 @@ import {
   getUnwrapsNeedingPayout,
   getUnwrapsPendingFee,
   getWrapByDeposit,
-  applyDebtRecovery,
-  getOutstandingDebtFor,
   markWrapClaimable,
   markWrapMintedFromClaim,
   recordUnwrapSendFailure,
@@ -66,6 +65,12 @@ export async function pollWrapDeposits(db: Database.Database): Promise<void> {
     const key = `${tx.txid}:${tx.address}`;
     if (processedDeposits.has(key)) continue;
     if (tx.confirmations < config.bloz.confirmations) continue;
+
+    if (await isBridgeReserveAddress(tx.address)) {
+      processedDeposits.add(key);
+      console.log(`Reserve top-up: ${tx.amount} BLOZ @ ${tx.address} (${tx.txid})`);
+      continue;
+    }
 
     const wrap = getWrapByDeposit(db, tx.address);
     const decision = classifyDepositForWrap(wrap, tx, min);
@@ -115,7 +120,13 @@ export async function pollClaimEvents(db: Database.Database): Promise<void> {
     if (events.length > 0) {
       const maxBlock = events.reduce((m, e) => (e.blockNumber > m ? e.blockNumber : m), 0n);
       setState(db, "last_claim_block", maxBlock.toString());
+    } else if (last) {
+      // Advance cursor when idle so a long outage does not create one huge getLogs range.
+      const tip = await getLatestBlock();
+      if (tip > BigInt(last)) setState(db, "last_claim_block", tip.toString());
     }
+  } catch (err) {
+    console.error("claim event poll failed:", err);
   } finally {
     // Always sweep wrap fees — must not depend on BSC RPC succeeding.
     await processWrapFees(db);
@@ -192,32 +203,6 @@ async function processUnwrapPayouts(db: Database.Database): Promise<void> {
       continue;
     }
 
-    // Debt netting: the wBLOZ was already burned on-chain by the bridge contract.
-    // For addresses that owe the bridge, the native payout is reduced by the
-    // outstanding debt — the withheld BLOZ stays in the reserve as recovery.
-    const debt = getOutstandingDebtFor(db, [req.evm_address, req.bz1_address]);
-    let withheld = 0;
-    if (debt) {
-      withheld = Math.round(Math.min(payout, debt.outstanding) * 1e8) / 1e8;
-      payout = Math.round((payout - withheld) * 1e8) / 1e8;
-    }
-
-    if (debt && payout <= 0) {
-      const r = db
-        .prepare(
-          `UPDATE unwrap_requests SET status='sent', payout_bloz=0, bloz_txid='debt-recovery', last_error=NULL
-           WHERE unwrap_id=? AND bloz_txid IS NULL`
-        )
-        .run(req.unwrap_id);
-      if (r.changes > 0) {
-        applyDebtRecovery(db, debt.groupId, withheld);
-        console.warn(
-          `Unwrap ${req.unwrap_id}: payout fully withheld (${withheld} BLOZ applied to debt group ${debt.groupId}, wBLOZ burned on-chain)`
-        );
-      }
-      continue;
-    }
-
     if (await recoverInFlightUnwrap(db, req, payout)) continue;
 
     if (req.status === "sending" || req.status === "pending") {
@@ -242,12 +227,6 @@ async function processUnwrapPayouts(db: Database.Database): Promise<void> {
         throw new Error("Could not finalize unwrap after broadcast");
       }
       const burned = unitsToBloz(BigInt(req.amount_units));
-      if (debt && withheld > 0) {
-        applyDebtRecovery(db, debt.groupId, withheld);
-        console.warn(
-          `Unwrap ${req.unwrap_id}: withheld ${withheld} BLOZ against debt group ${debt.groupId}`
-        );
-      }
       console.log(
         `Unwrap ${req.unwrap_id}: sent ${payout} BLOZ -> ${req.bz1_address} (burned ${burned}, bridge fee + network fee ${unwrapNetworkFeeBloz()}) (${txid})`
       );
@@ -275,23 +254,30 @@ async function processUnwrapPayouts(db: Database.Database): Promise<void> {
 }
 
 export async function pollUnwrapEvents(db: Database.Database): Promise<void> {
-  const last = getState(db, "last_unwrap_block");
-  let fromBlock = last ? BigInt(last) + 1n : (await getLatestBlock()) - 5000n;
-  if (fromBlock < 0n) fromBlock = 0n;
+  try {
+    const last = getState(db, "last_unwrap_block");
+    let fromBlock = last ? BigInt(last) + 1n : (await getLatestBlock()) - 5000n;
+    if (fromBlock < 0n) fromBlock = 0n;
 
-  const events = await fetchUnwrapEvents(fromBlock);
-  for (const ev of events) {
-    upsertUnwrap(db, {
-      unwrap_id: Number(ev.unwrapId),
-      evm_address: ev.user,
-      bz1_address: ev.bz1Address,
-      amount_units: ev.amount.toString(),
-    });
-  }
+    const events = await fetchUnwrapEvents(fromBlock);
+    for (const ev of events) {
+      upsertUnwrap(db, {
+        unwrap_id: Number(ev.unwrapId),
+        evm_address: ev.user,
+        bz1_address: ev.bz1Address,
+        amount_units: ev.amount.toString(),
+      });
+    }
 
-  if (events.length > 0) {
-    const maxBlock = events.reduce((m, e) => (e.blockNumber > m ? e.blockNumber : m), 0n);
-    setState(db, "last_unwrap_block", maxBlock.toString());
+    if (events.length > 0) {
+      const maxBlock = events.reduce((m, e) => (e.blockNumber > m ? e.blockNumber : m), 0n);
+      setState(db, "last_unwrap_block", maxBlock.toString());
+    } else if (last) {
+      const tip = await getLatestBlock();
+      if (tip > BigInt(last)) setState(db, "last_unwrap_block", tip.toString());
+    }
+  } catch (err) {
+    console.error("unwrap event poll failed:", err);
   }
 
   try {
