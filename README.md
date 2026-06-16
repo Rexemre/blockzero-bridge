@@ -19,7 +19,7 @@ Wrap native **BLOZ** (Block Zero mainnet) to **wBLOZ** (BEP-20 on BNB Smart Chai
 | | |
 |---|---|
 | **Website** | https://bloz.org |
-| **Pool** | https://pool.bloz.org *(test release)* |
+| **Pool** | https://pool.bloz.org |
 | **Explorer** | https://explorer.bloz.org · testnet: https://texplorer.bloz.org |
 | **Bridge** | https://bridge.bloz.org |
 | **Discord** | https://discord.gg/FbJzrwAU2W |
