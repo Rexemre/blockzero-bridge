@@ -1,8 +1,8 @@
 # Block Zero Bridge — BLOZ ↔ wBLOZ (BSC)
 
+**Bitcoin-style BLOZ on your CPU · trade on BSC as wBLOZ**
 
-
-Wrap native **BLOZ** (Block Zero mainnet) to **wBLOZ** (BEP-20 on BNB Smart Chain) for DEX liquidity.  
+Wrap native **BLOZ** (Block Zero mainnet, **RandomX CPU mining**) to **wBLOZ** (BEP-20 on BNB Smart Chain) for DEX liquidity.  
 
 8 decimals. **3.9% bridge fee** per wrap and unwrap (`BRIDGE_FEE_BPS=390`). Unwrap burns wBLOZ and sends native BLOZ back. The fee is sent to `BRIDGE_FEE_BZ1_ADDRESS` (separate treasury wallet).
 
@@ -20,7 +20,7 @@ Wrap native **BLOZ** (Block Zero mainnet) to **wBLOZ** (BEP-20 on BNB Smart Chai
 |---|---|
 | **Website** | https://bloz.org |
 | **Pool** | https://pool.bloz.org |
-| **Explorer** | https://explorer.bloz.org · testnet: https://texplorer.bloz.org |
+| **Explorer** | https://explorer.bloz.org |
 | **Bridge** | https://bridge.bloz.org |
 | **Discord** | https://discord.gg/FbJzrwAU2W |
 | **X (Twitter)** | https://x.com/Block_Zero_2009 |
