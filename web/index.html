@@ -8,10 +8,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="icon" href="https://bloz.org/favicon.ico?v=10" sizes="any" />
-  <link rel="icon" type="image/png" sizes="32x32" href="https://bloz.org/assets/favicon-32.png?v=10" />
-  <link rel="icon" type="image/png" href="https://bloz.org/assets/favicon.png?v=10" />
-  <link rel="apple-touch-icon" href="https://bloz.org/assets/apple-touch-icon.png?v=10" />
+  <link rel="icon" href="https://bloz.org/favicon.ico?v=11" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="https://bloz.org/assets/favicon-32.png?v=11" />
+  <link rel="icon" type="image/png" href="https://bloz.org/assets/favicon.png?v=11" />
+  <link rel="apple-touch-icon" href="https://bloz.org/assets/apple-touch-icon.png?v=11" />
   <meta name="theme-color" content="#05070A" />
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="https://bloz.org/assets/bloz-header.css?v=3" />
@@ -114,6 +114,7 @@
       <dl id="trust-info" class="trust-dl"></dl>
       <ul class="trust-list">
         <li><strong>Custodial model:</strong> unwrap payouts and auto-refunds are sent from the bridge BLOZ reserve.</li>
+        <li><strong>Claim step:</strong> after your BLOZ deposit confirms, BLOZ sits in the bridge reserve until you claim wBLOZ on BSC — shown as “awaiting claim” in the live reserves line above.</li>
         <li><strong>Bridge fee:</strong> 3.9% is deducted on wrap (you receive 96.1% as wBLOZ) and on unwrap (you receive 96.1% as BLOZ, minus network fee). The fee stays in the reserve, so wBLOZ remains over-backed.</li>
         <li><strong>Auto-refund:</strong> unclaimed wraps, expired addresses, duplicate deposits, and amounts below the minimum are returned to the original <code>bz1…</code> sender minus the Block Zero network fee.</li>
         <li><strong>Verify yourself:</strong> compare live reserves above with <code>wBLOZ.totalSupply()</code> on BscScan and the bridge wallet balance on the Block Zero explorer.</li>
@@ -130,6 +131,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
   <script src="https://bloz.org/assets/bloz-header.js" defer></script>
-  <script src="./app.js"></script>
+  <script src="./app.js?v=20260616"></script>
 </body>
 </html>

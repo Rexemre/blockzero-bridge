@@ -30,6 +30,7 @@ import {
 import {
   expireOldWraps,
   finalizeUnwrapIfTxid,
+  getClaimableAwaitingStats,
   getMintedWrapsPendingFee,
   getState,
   getUnwrapsNeedingPayout,
@@ -318,15 +319,20 @@ export async function getReserveStats(db: Database.Database): Promise<{
   bridgeBloz: number;
   wBLOZSupply: string;
   backed: boolean;
+  claimableAwaitingBloz: string;
+  claimableAwaitingCount: number;
   publicReserveBz1: string | null;
   updatedAt: string;
 }> {
   const [bridgeBloz, supply] = await Promise.all([getBridgeBalance(), getWBLOZTotalSupply()]);
   const supplyBloz = unitsToBloz(supply);
+  const claimable = getClaimableAwaitingStats(db);
   return {
     bridgeBloz,
     wBLOZSupply: supplyBloz.toFixed(8),
     backed: bridgeBloz + 1e-8 >= supplyBloz,
+    claimableAwaitingBloz: claimable.bloz.toFixed(8),
+    claimableAwaitingCount: claimable.count,
     publicReserveBz1: getState(db, "public_reserve_bz1") ?? null,
     updatedAt: new Date().toISOString(),
   };

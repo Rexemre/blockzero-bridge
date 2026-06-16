@@ -218,9 +218,19 @@
     const updated = status.updatedAt
       ? ` · updated ${new Date(status.updatedAt).toLocaleTimeString()}`
       : "";
+    const awaiting = Number(status.claimableAwaitingBloz ?? 0);
+    const awaitingPart =
+      awaiting > 0.0001
+        ? ` · <strong>${awaiting.toFixed(2)} BLOZ</strong> awaiting claim` +
+          (Number(status.claimableAwaitingCount ?? 0) > 1
+            ? ` (${status.claimableAwaitingCount} wraps)`
+            : "")
+        : "";
     $("reserves").innerHTML =
       `Bridge reserve: <strong>${Number(status.bridgeBloz).toFixed(4)} BLOZ</strong> · ` +
-      `wBLOZ supply: <strong>${status.wBLOZSupply}</strong> · ` +
+      `wBLOZ supply: <strong>${status.wBLOZSupply}</strong>` +
+      awaitingPart +
+      ` · ` +
       (status.backed ? "✓ fully backed" : "⚠ check reserves") +
       updated;
     $("contract-info").innerHTML =

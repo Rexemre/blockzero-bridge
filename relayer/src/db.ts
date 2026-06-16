@@ -629,6 +629,17 @@ export function markUnwrapFailed(db: Database.Database, unwrapId: number): void 
   db.prepare(`UPDATE unwrap_requests SET status='failed' WHERE unwrap_id=?`).run(unwrapId);
 }
 
+/** BLOZ received but wBLOZ not yet claimed on BSC (claim-contract model). */
+export function getClaimableAwaitingStats(db: Database.Database): { count: number; bloz: number } {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count, COALESCE(SUM(bloz_amount), 0) AS bloz
+       FROM wrap_requests WHERE status = 'claimable'`
+    )
+    .get() as { count: number; bloz: number };
+  return { count: row.count, bloz: row.bloz };
+}
+
 export function getState(db: Database.Database, key: string): string | undefined {
   const row = db.prepare("SELECT value FROM relayer_state WHERE key = ?").get(key) as
     | { value: string }
