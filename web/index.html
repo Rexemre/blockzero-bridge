@@ -13,8 +13,8 @@
   <link rel="icon" type="image/png" href="https://bloz.org/assets/favicon.png?v=11" />
   <link rel="apple-touch-icon" href="https://bloz.org/assets/apple-touch-icon.png?v=11" />
   <meta name="theme-color" content="#05070A" />
-  <link rel="stylesheet" href="./styles.css" />
-  <link rel="stylesheet" href="https://bloz.org/assets/bloz-header.css?v=3" />
+  <link rel="stylesheet" href="./styles.css?v=2" />
+  <link rel="stylesheet" href="https://bloz.org/assets/bloz-header.css?v=12" />
 </head>
 <body>
   <nav class="bz-suite" aria-label="Block Zero sites">
@@ -33,71 +33,105 @@
   <div class="bg-glow" aria-hidden="true"></div>
 
   <main class="main">
+
+    <!-- ============ HERO ============ -->
     <section class="hero">
-      <div class="page-toolbar">
-        <div>
-          <h1>Wrap BLOZ → wBLOZ</h1>
-          <span class="badge">BSC Bridge</span>
-        </div>
-        <button id="connect" class="btn">Connect Wallet</button>
-      </div>
-      <p class="lede">Move native BLOZ to BNB Smart Chain as <strong>wBLOZ</strong> (ERC-20, 8 decimals). Fully backed reserve. Unwrap anytime. <strong>3.9% bridge fee</strong> per wrap and unwrap.</p>
+      <span class="hero-eyebrow">Block Zero ↔ BNB Smart Chain</span>
+      <h1>BLOZ <span class="text-grad-bridge">Bridge</span></h1>
+      <p class="hero-desc">
+        Wrap native <strong>BLOZ</strong> to <strong>wBLOZ</strong> (BEP-20) for DEX trading on BSC.
+        Unwrap anytime to get native BLOZ back. Fully backed reserve.
+      </p>
+
+      <!-- Live reserve status (filled by JS) -->
       <div id="reserves" class="reserves">Loading reserves…</div>
+
+      <!-- Trust badges -->
+      <div class="hero-badges">
+        <span class="hero-badge teal"><strong>3.9%</strong>&nbsp;bridge fee</span>
+        <span class="hero-badge ok">✓ Fully backed</span>
+        <span class="hero-badge"><strong>6</strong>&nbsp;confirmations required</span>
+        <span class="hero-badge">Auto-refund on failure</span>
+      </div>
+
+      <!-- wBLOZ price + trade -->
+      <div class="bridge-price">
+        <div>
+          <div class="bridge-price-kicker">PancakeSwap · wBLOZ/USDT</div>
+          <div>
+            <span class="bridge-price-value" data-bz-price>…</span>
+            <span class="bridge-price-unit">USDT</span>
+          </div>
+          <div class="bridge-price-note">Indicative DEX price · third-party swap · not financial advice</div>
+        </div>
+        <div class="bridge-price-actions">
+          <a class="btn-buy-wbloz" href="https://pancakeswap.finance/swap?chain=bsc&amp;outputCurrency=0x395B11E87ac0630aF9DC32520f411dB17C13F24C&amp;inputCurrency=0x55d398326f99059fF775485246999027B3197955" target="_blank" rel="noopener noreferrer">Buy wBLOZ</a>
+          <a class="btn-mine-bloz" href="https://pool.bloz.org">Mine BLOZ</a>
+        </div>
+      </div>
+
+      <!-- Connect wallet -->
+      <div class="hero-actions">
+        <button id="connect" class="btn-connect">Connect Wallet</button>
+      </div>
     </section>
 
+    <!-- ============ TABS ============ -->
     <div class="tabs">
-      <button class="tab active" data-tab="wrap">Wrap (BLOZ → wBLOZ)</button>
-      <button class="tab" data-tab="unwrap">Unwrap (wBLOZ → BLOZ)</button>
+      <button class="tab active" data-tab="wrap">⬆ Wrap → wBLOZ</button>
+      <button class="tab" data-tab="unwrap">⬇ Unwrap → BLOZ</button>
     </div>
 
+    <!-- ============ WRAP PANEL ============ -->
     <section id="panel-wrap" class="panel">
+      <h2>Wrap BLOZ → wBLOZ</h2>
       <ol class="steps">
-        <li>Connect your BSC wallet (MetaMask).</li>
-        <li>Create a unique deposit address below (one active address per wallet).</li>
+        <li>Connect your BSC wallet (MetaMask) using the button above.</li>
+        <li>Click <strong>Create deposit address</strong> to get a unique BLOZ address (one active per wallet).</li>
         <li>Send native BLOZ in <strong>one transaction</strong> — any amount ≥ 0.01 BLOZ. You receive <strong>96.1%</strong> as wBLOZ (<strong>3.9% bridge fee</strong>).</li>
-        <li>Do <strong>not</strong> send twice to the same address. Wait for expiry before creating a new one.</li>
-        <li>After <span id="min-conf">6</span> confirmations, click <strong>Claim wBLOZ</strong> (you pay a small BNB gas fee).</li>
+        <li>Do <strong>not</strong> send twice to the same address. Finish or wait for expiry before creating a new one.</li>
+        <li>After <span id="min-conf">6</span> confirmations, click <strong>Claim wBLOZ</strong> — you pay a small BNB gas fee.</li>
         <li>Claim within <span id="claim-expiry-hours">7</span> days after deposit confirms — otherwise BLOZ is <strong>auto-refunded</strong> to the sending address (minus network fee).</li>
-        <li><strong>Add wBLOZ in MetaMask</strong> (see below) — it will not appear automatically.</li>
+        <li><strong>Add wBLOZ in MetaMask</strong> — it will not appear automatically (see section below).</li>
       </ol>
       <button id="create-wrap" class="btn btn-primary" disabled>Create deposit address</button>
       <div id="wrap-result" class="result" hidden></div>
       <div id="wrap-history" class="history"></div>
     </section>
 
+    <!-- ============ UNWRAP PANEL ============ -->
     <section id="panel-unwrap" class="panel" hidden>
+      <h2>Unwrap wBLOZ → BLOZ</h2>
       <ol class="steps">
         <li>Connect MetaMask on <strong>BNB Smart Chain</strong> with wBLOZ in your wallet.</li>
         <li>Enter the amount and your Block Zero receive address (<code>bz1…</code>).</li>
         <li>Approve wBLOZ (first time only) and confirm unwrap — <strong>you pay BNB gas</strong>.</li>
-        <li>Native BLOZ is sent to your <code>bz1…</code> address after relayer processing (usually within minutes).</li>
-        <li>Payout is your unwrap amount <strong>minus the 3.9% bridge fee</strong> and a small Block Zero network fee (see below).</li>
-        <li><strong>3.9% bridge fee</strong> per unwrap; you also pay BNB gas for approve + unwrap.</li>
+        <li>Native BLOZ is sent to your <code>bz1…</code> address after relayer processing (usually minutes).</li>
+        <li>Payout = unwrap amount <strong>minus 3.9% bridge fee</strong> and a small network fee (see below).</li>
       </ol>
       <p id="unwrap-balance" class="unwrap-balance">Connect wallet to see your wBLOZ balance.</p>
-      <p id="unwrap-fee-note" class="unwrap-note">Block Zero network fee on payout: loading…</p>
-      <label>Amount (wBLOZ)
-        <input id="unwrap-amount" type="text" inputmode="decimal" placeholder="10.0" />
-      </label>
+      <p id="unwrap-fee-note" class="unwrap-note">Bridge fee + network fee: loading…</p>
+      <label for="unwrap-amount">Amount (wBLOZ)</label>
+      <input id="unwrap-amount" type="text" inputmode="decimal" placeholder="10.0" />
       <p id="unwrap-estimate" class="unwrap-note" hidden></p>
-      <label>Block Zero address (bz1…)
-        <input id="unwrap-bz1" type="text" placeholder="bz1…" autocomplete="off" spellcheck="false" />
-      </label>
+      <label for="unwrap-bz1">Block Zero address (bz1…)</label>
+      <input id="unwrap-bz1" type="text" placeholder="bz1…" autocomplete="off" spellcheck="false" />
       <button id="do-unwrap" class="btn btn-primary" disabled>Unwrap to BLOZ</button>
-      <p class="unwrap-note">You pay BNB for approve + unwrap · Bridge reserve must cover your unwrap amount</p>
+      <p class="unwrap-note">You pay BNB gas for approve + unwrap · Bridge reserve must cover your amount</p>
       <div id="unwrap-status" class="result" hidden></div>
       <div id="unwrap-history" class="history"></div>
     </section>
 
+    <!-- ============ ADD wBLOZ TO METAMASK ============ -->
     <section class="panel token-help" id="token-help">
-      <h2>Don't see wBLOZ in MetaMask?</h2>
+      <h2>Add wBLOZ to MetaMask</h2>
       <p class="lede-small">
         MetaMask does <strong>not</strong> show custom BEP-20 tokens until you import them once.
         Your claim still succeeds on-chain — add wBLOZ below to see your balance.
       </p>
       <ol class="steps">
         <li>Connect MetaMask on <strong>BNB Smart Chain</strong> (not Ethereum).</li>
-        <li>Click <strong>Add wBLOZ to MetaMask</strong> below, or import manually.</li>
+        <li>Click <strong>Add wBLOZ to MetaMask</strong> below — or import manually.</li>
         <li>Manual: MetaMask → Tokens → Import token → paste contract address, symbol <code>wBLOZ</code>, decimals <code>8</code>.</li>
       </ol>
       <p class="token-contract-label">wBLOZ contract (BSC)</p>
@@ -108,13 +142,14 @@
       </div>
     </section>
 
+    <!-- ============ TRUST & TRANSPARENCY ============ -->
     <section class="panel trust" id="trust-panel">
       <h2>Trust &amp; transparency</h2>
       <p class="lede-small">Every wBLOZ is backed by native BLOZ held in the bridge wallet. Minting happens only through the on-chain claim contract after your deposit confirms.</p>
       <dl id="trust-info" class="trust-dl"></dl>
       <ul class="trust-list">
         <li><strong>Custodial model:</strong> unwrap payouts and auto-refunds are sent from the bridge BLOZ reserve.</li>
-        <li><strong>Claim step:</strong> after your BLOZ deposit confirms, BLOZ sits in the bridge reserve until you claim wBLOZ on BSC — shown as “awaiting claim” in the live reserves line above.</li>
+        <li><strong>Claim step:</strong> after your BLOZ deposit confirms, it sits in the bridge reserve until you claim wBLOZ on BSC — shown as "awaiting claim" in the live reserves line above.</li>
         <li><strong>Bridge fee:</strong> 3.9% is deducted on wrap (you receive 96.1% as wBLOZ) and on unwrap (you receive 96.1% as BLOZ, minus network fee). The fee stays in the reserve, so wBLOZ remains over-backed.</li>
         <li><strong>Auto-refund:</strong> unclaimed wraps, expired addresses, duplicate deposits, and amounts below the minimum are returned to the original <code>bz1…</code> sender minus the Block Zero network fee.</li>
         <li><strong>Verify yourself:</strong> compare live reserves above with <code>wBLOZ.totalSupply()</code> on BscScan and the bridge wallet balance on the Block Zero explorer.</li>
@@ -122,15 +157,42 @@
       <p class="fineprint" id="trust-links">Source code and full trust model: loading…</p>
     </section>
 
+    <!-- ============ CONTRACTS ============ -->
     <section class="contracts">
       <h2>Contracts (BSC)</h2>
       <dl id="contract-info"></dl>
-      <p class="fineprint">Only use the official contract addresses below. Only send BLOZ to deposit addresses generated on this page.</p>
+      <p class="fineprint" style="margin-top:0.75rem">Only use the official contract addresses above. Only send BLOZ to deposit addresses generated on this page.</p>
     </section>
+
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
-  <script src="https://bloz.org/assets/bloz-header.js" defer></script>
+  <script src="https://bloz.org/assets/bloz-header.js?v=8" defer></script>
   <script src="./app.js?v=20260616"></script>
+  <script>
+  /* Scroll entrance animations */
+  (function () {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var obs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        e.target.classList.add('anim-visible');
+        obs.unobserve(e.target);
+      });
+    }, { threshold: 0.08, rootMargin: '0px 0px -80px 0px' });
+    function mark(el, delay) {
+      el.classList.add('anim-item');
+      if (delay) el.style.transitionDelay = delay + 's';
+      obs.observe(el);
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+      var hero = document.querySelector('.hero');
+      if (hero) mark(hero, 0);
+      document.querySelectorAll('.tabs, .panel, .trust, .contracts').forEach(function (el, i) {
+        mark(el, (i * 0.1).toFixed(2));
+      });
+    });
+  })();
+  </script>
 </body>
 </html>
