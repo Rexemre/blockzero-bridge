@@ -4,7 +4,7 @@
 
 Wrap native **BLOZ** (Block Zero mainnet, **RandomX CPU mining**) to **wBLOZ** (BEP-20 on BNB Smart Chain) for DEX liquidity.  
 
-8 decimals. **3.9% bridge fee** per wrap and unwrap (`BRIDGE_FEE_BPS=390`). Unwrap burns wBLOZ and sends native BLOZ back. The fee is sent to `BRIDGE_FEE_BZ1_ADDRESS` (separate treasury wallet).
+8 decimals. **0% bridge fee** per wrap and unwrap (`BRIDGE_FEE_BPS=0`). Unwrap burns wBLOZ and sends native BLOZ back.
 
 
 
@@ -25,8 +25,6 @@ Wrap native **BLOZ** (Block Zero mainnet, **RandomX CPU mining**) to **wBLOZ** (
 | **Discord** | https://discord.gg/FbJzrwAU2W |
 | **X (Twitter)** | https://x.com/Block_Zero_2009 |
 | **Full list** | [official-links.md](https://github.com/Rexemre/blockzero-docs/blob/main/official-links.md) |
-
-> **Warning:** Copycat sites (e.g. `.cc` domains) and third-party pools are **not affiliated** with Block Zero — we have no insight into their code and accept **no liability** for malware, wrong-chain mining, fraud, or unfair pool payouts. [Read the full warning →](https://github.com/Rexemre/blockzero-docs/blob/main/official-links.md#warning-copycat-sites--unofficial-services)
 
 ## Architecture
 
@@ -78,7 +76,7 @@ BLOZ is automatically returned to the **original sending `bz1…` address** (min
 
 
 
-Refund fee: only the network fee `UNWRAP_NETWORK_FEE_BLOZ` (default `0.00001` BLOZ) — **no 3.9% bridge fee** on refunds.
+Refund fee: only the network fee `UNWRAP_NETWORK_FEE_BLOZ` (default `0.00001` BLOZ).
 
 
 
@@ -222,7 +220,7 @@ systemctl restart caddy
 
 3. Sends native BLOZ from Block Zero wallet
 
-4. After 6 confirmations → user claims wBLOZ on BSC (BNB gas) — receives **96.1%** of the deposit (3.9% bridge fee)
+4. After 6 confirmations → user claims wBLOZ on BSC (BNB gas) — receives **100%** of the deposit (0% bridge fee)
 
 
 
@@ -232,7 +230,7 @@ systemctl restart caddy
 
 1. User approves + calls `unwrap(amount, bz1Address)` on BlozBridge
 
-2. Relayer detects event, sends native BLOZ from bridge wallet — **96.1%** of the burned amount (3.9% bridge fee) minus the network fee
+2. Relayer detects event, sends native BLOZ from bridge wallet — full burned amount minus the network fee
 
 
 
