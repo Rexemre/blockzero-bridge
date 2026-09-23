@@ -1,0 +1,10 @@
+[Unit]
+Description=BLOZ bridge health check (cursor, transfers, reserve, auto-restart, alarms)
+After=network-online.target blockzero-bridge.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/blockzero-bridge/deploy/bridge-health.py
+TimeoutStartSec=240
+Nice=5
