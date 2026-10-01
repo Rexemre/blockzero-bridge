@@ -12,6 +12,17 @@ import { bsc } from "viem/chains";
 
 import { config } from "./config.js";
 import { bytes32ToWrapId, wrapIdToBytes32 } from "./claim.js";
+import {
+  RpcPool,
+  RpcPoolExhausted,
+  StallGate,
+  mergeRpcUrls,
+  rpcLabel,
+  scanBlockRange,
+  scanTarget,
+  type BlockVisitor,
+  type ScanRpc,
+} from "./bsc-scan.js";
 
 const wBLOZAbi = parseAbi(["function totalSupply() view returns (uint256)"]);
 
@@ -33,12 +44,84 @@ const defaultRpcs = [
   "https://bsc-dataseed3.binance.org/",
 ];
 
+const rpcUrls = mergeRpcUrls(
+  config.bsc.rpcUrls.length ? config.bsc.rpcUrls : defaultRpcs,
+  config.bsc.rpcFallbackUrls
+);
+
 export const publicClient = createPublicClient({
   chain,
-  transport: fallback(
-    (config.bsc.rpcUrls.length ? config.bsc.rpcUrls : defaultRpcs).map((url) => http(url))
-  ),
+  transport: fallback(rpcUrls.map((url) => http(url))),
 });
+
+/**
+ * Live event scans use one client per endpoint (no viem retries/fallback) so a "block not found"
+ * from a lagging backend rotates to the next endpoint instead of failing the whole poll.
+ */
+const scanPool = new RpcPool(
+  rpcUrls.map((url): ScanRpc => {
+    const client = createPublicClient({
+      chain,
+      transport: http(url, { timeout: config.bsc.rpcTimeoutMs, retryCount: 0 }),
+    });
+    return {
+      name: rpcLabel(url),
+      blockNumber: () => client.getBlockNumber({ cacheTime: 0 }),
+      blockTxs: async (blockNumber) => {
+        const block = await client.getBlock({ blockNumber, includeTransactions: true });
+        return block.transactions.filter((tx) => typeof tx !== "string");
+      },
+      receipt: (hash) => client.getTransactionReceipt({ hash }),
+    };
+  })
+);
+
+function stallGate(stream: string): StallGate {
+  return new StallGate(stream, {
+    baseDelayMs: config.bsc.pollMs,
+    maxDelayMs: config.bsc.stallBackoffMaxMs,
+    escalateAfterMs: config.bsc.stallEscalateMs,
+  });
+}
+
+const unwrapGate = stallGate("unwrap");
+const claimGate = stallGate("claim");
+
+/**
+ * Block-scan [fromBlock, tip - lag] through the endpoint pool. Never throws for RPC trouble:
+ * it returns the range actually scanned (possibly empty → scanEnd = fromBlock - 1, which leaves
+ * the cursor untouched) and backs off with a throttled warning.
+ */
+async function liveBlockScan<E>(
+  gate: StallGate,
+  fromBlock: bigint,
+  visit: BlockVisitor<E>,
+  wide: (scanEnd: bigint) => Promise<E[]>
+): Promise<{ events: E[]; scanEnd: bigint }> {
+  const nothing = { events: [] as E[], scanEnd: fromBlock - 1n };
+  if (!gate.ready()) return nothing;
+
+  let target: bigint;
+  try {
+    target = await scanTarget(scanPool, config.bsc.scanLagBlocks);
+  } catch (err) {
+    if (!(err instanceof RpcPoolExhausted)) throw err;
+    gate.onStall(undefined, err.reason, false);
+    return nothing;
+  }
+  if (fromBlock > target) return { events: [], scanEnd: target };
+
+  // Wide historical ranges (cursor far behind) keep the getLogs path.
+  if (target - fromBlock + 1n > 5000n) return { events: await wide(target), scanEnd: target };
+
+  const res = await scanBlockRange(scanPool, fromBlock, target, visit);
+  if (res.stalledAt !== undefined) {
+    gate.onStall(res.stalledAt, res.stallReason ?? "unknown", res.scanEnd >= fromBlock);
+  } else {
+    gate.onSuccess();
+  }
+  return { events: res.events, scanEnd: res.scanEnd };
+}
 
 function isLogRangeError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -124,86 +207,72 @@ export type ClaimEvent = {
 export async function fetchClaimEvents(
   fromBlock: bigint
 ): Promise<{ events: ClaimEvent[]; scanEnd: bigint }> {
-  const latest = await getLatestBlock();
-  // Stay a little behind tip: the fallback RPCs can lag each other by a block or two.
-  const scanEnd = latest > 2n ? latest - 2n : 0n;
-  if (!config.bsc.wrapClaimAddress || fromBlock > scanEnd) return { events: [], scanEnd };
+  const claimAddress = config.bsc.wrapClaimAddress;
+  if (!claimAddress) return { events: [], scanEnd: fromBlock - 1n };
+  const claimAddr = claimAddress.toLowerCase();
 
-  const span = scanEnd - fromBlock + 1n;
-
-  if (span > 5000n) {
-    const logs = await getLogsChunked(
-      (from, to) =>
-        publicClient.getLogs({
-          address: config.bsc.wrapClaimAddress,
-          event: claimAbi[0],
-          fromBlock: from,
-          toBlock: to,
-        }),
-      fromBlock,
-      scanEnd
-    );
-
-    const events = logs.map((log) => {
-      const decoded = decodeEventLog({
-        abi: claimAbi,
-        data: log.data,
-        topics: log.topics,
-      });
-      const wrapIdBytes = decoded.args.wrapId as Hex;
-      return {
-        wrapId: bytes32ToWrapId(wrapIdBytes),
-        to: decoded.args.to as `0x${string}`,
-        amount: decoded.args.amount as bigint,
-        txHash: log.transactionHash!,
-        blockNumber: log.blockNumber ?? 0n,
-      };
-    });
-    return { events, scanEnd };
-  }
-
-  const claimAddr = config.bsc.wrapClaimAddress.toLowerCase();
-  const out: ClaimEvent[] = [];
-
-  for (let b = fromBlock; b <= scanEnd; b++) {
-    const block = await publicClient.getBlock({ blockNumber: b, includeTransactions: true });
-    const claimTxHashes: Hex[] = [];
-
-    for (const tx of block.transactions) {
-      if (typeof tx === "string") continue;
-      if (tx.to?.toLowerCase() !== claimAddr) continue;
-      claimTxHashes.push(tx.hash);
-    }
-
-    for (const hash of claimTxHashes) {
-      const receipt = await publicClient.getTransactionReceipt({ hash });
-      for (const log of receipt.logs) {
-        if (log.address.toLowerCase() !== claimAddr) continue;
-        try {
-          const decoded = decodeEventLog({
-            abi: claimAbi,
-            data: log.data,
-            topics: log.topics,
-          });
-          if (decoded.eventName !== "WrapClaimed") continue;
-          const wrapIdBytes = decoded.args.wrapId as Hex;
-          out.push({
-            wrapId: bytes32ToWrapId(wrapIdBytes),
-            to: decoded.args.to as `0x${string}`,
-            amount: decoded.args.amount as bigint,
-            txHash: hash,
-            blockNumber: b,
-          });
-        } catch {
-          /* ignore */
+  return liveBlockScan<ClaimEvent>(
+    claimGate,
+    fromBlock,
+    async (pool, b, txs) => {
+      const out: ClaimEvent[] = [];
+      for (const tx of txs) {
+        if (tx.to?.toLowerCase() !== claimAddr) continue;
+        const receipt = await pool.call(`receipt ${tx.hash}`, (rpc) => rpc.receipt(tx.hash));
+        for (const log of receipt.logs) {
+          if (log.address.toLowerCase() !== claimAddr) continue;
+          try {
+            const decoded = decodeEventLog({
+              abi: claimAbi,
+              data: log.data,
+              topics: log.topics,
+            });
+            if (decoded.eventName !== "WrapClaimed") continue;
+            const wrapIdBytes = decoded.args.wrapId as Hex;
+            out.push({
+              wrapId: bytes32ToWrapId(wrapIdBytes),
+              to: decoded.args.to as `0x${string}`,
+              amount: decoded.args.amount as bigint,
+              txHash: tx.hash,
+              blockNumber: b,
+            });
+          } catch {
+            /* ignore */
+          }
         }
       }
+      return out;
+    },
+    async (scanEnd) => {
+      const logs = await getLogsChunked(
+        (from, to) =>
+          publicClient.getLogs({
+            address: claimAddress,
+            event: claimAbi[0],
+            fromBlock: from,
+            toBlock: to,
+          }),
+        fromBlock,
+        scanEnd
+      );
+
+      return logs.map((log) => {
+        const decoded = decodeEventLog({
+          abi: claimAbi,
+          data: log.data,
+          topics: log.topics,
+        });
+        const wrapIdBytes = decoded.args.wrapId as Hex;
+        return {
+          wrapId: bytes32ToWrapId(wrapIdBytes),
+          to: decoded.args.to as `0x${string}`,
+          amount: decoded.args.amount as bigint,
+          txHash: log.transactionHash!,
+          blockNumber: log.blockNumber ?? 0n,
+        };
+      });
     }
-
-    if (b < scanEnd) await sleep(40);
-  }
-
-  return { events: out, scanEnd };
+  );
 }
 
 const UNWRAP_SELECTOR = "0x307cf63f";
@@ -242,48 +311,25 @@ function unwrapEventsFromReceipt(receipt: TransactionReceipt, blockNumber: bigin
   return out;
 }
 
-/** Scan blocks for unwrap() txs — avoids eth_getLogs (rate-limited on public BSC RPCs). */
-async function fetchUnwrapEventsViaBlocks(fromBlock: bigint, toBlock: bigint): Promise<UnwrapEvent[]> {
-  if (fromBlock > toBlock) return [];
-
+/** Block-scan visitor for unwrap() txs — avoids eth_getLogs (rate-limited on public BSC RPCs). */
+const visitUnwrapBlock: BlockVisitor<UnwrapEvent> = async (pool, b, txs) => {
   const bridge = config.bsc.bridgeAddress.toLowerCase();
   const out: UnwrapEvent[] = [];
-
-  for (let b = fromBlock; b <= toBlock; b++) {
-    const block = await publicClient.getBlock({ blockNumber: b, includeTransactions: true });
-    const unwrapTxHashes: Hex[] = [];
-
-    for (const tx of block.transactions) {
-      if (typeof tx === "string") continue;
-      if (tx.to?.toLowerCase() !== bridge) continue;
-      if (!tx.input.startsWith(UNWRAP_SELECTOR)) continue;
-      unwrapTxHashes.push(tx.hash);
-    }
-
-    for (const hash of unwrapTxHashes) {
-      const receipt = await publicClient.getTransactionReceipt({ hash });
-      out.push(...unwrapEventsFromReceipt(receipt, b));
-    }
-
-    if (b < toBlock) await sleep(40);
+  for (const tx of txs) {
+    if (tx.to?.toLowerCase() !== bridge) continue;
+    if (!tx.input.startsWith(UNWRAP_SELECTOR)) continue;
+    const receipt = await pool.call(`receipt ${tx.hash}`, (rpc) => rpc.receipt(tx.hash));
+    out.push(...unwrapEventsFromReceipt(receipt, b));
   }
-
   return out;
-}
+};
 
 /** Returns events plus scanEnd — the last block actually scanned; cursors must advance to scanEnd, not tip. */
 export async function fetchUnwrapEvents(
   fromBlock: bigint
 ): Promise<{ events: UnwrapEvent[]; scanEnd: bigint }> {
-  const latest = await getLatestBlock();
-  // Stay a little behind tip: the fallback RPCs can lag each other by a block or two.
-  const scanEnd = latest > 2n ? latest - 2n : 0n;
-  if (fromBlock > scanEnd) return { events: [], scanEnd };
-
-  const span = scanEnd - fromBlock + 1n;
-
   // Wide historical scans still use getLogs (backfill scripts); live polling uses block scan.
-  if (span > 5000n) {
+  return liveBlockScan<UnwrapEvent>(unwrapGate, fromBlock, visitUnwrapBlock, async (scanEnd) => {
     const logs = await getLogsChunked(
       (from, to) =>
         publicClient.getLogs({
@@ -296,7 +342,7 @@ export async function fetchUnwrapEvents(
       scanEnd
     );
 
-    const events = logs.map((log) => {
+    return logs.map((log) => {
       const decoded = decodeEventLog({
         abi: bridgeAbi,
         data: log.data,
@@ -310,10 +356,7 @@ export async function fetchUnwrapEvents(
         blockNumber: log.blockNumber ?? 0n,
       };
     });
-    return { events, scanEnd };
-  }
-
-  return { events: await fetchUnwrapEventsViaBlocks(fromBlock, scanEnd), scanEnd };
+  });
 }
 
 export async function getLatestBlock(): Promise<bigint> {

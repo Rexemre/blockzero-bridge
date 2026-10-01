@@ -82,6 +82,32 @@ export const config = {
     wBLOZAddress: req("WBLOZ_ADDRESS") as `0x${string}`,
     bridgeAddress: req("BRIDGE_ADDRESS") as `0x${string}`,
     wrapClaimAddress: process.env.WRAP_CLAIM_ADDRESS as `0x${string}` | undefined,
+    /**
+     * Extra endpoints tried after BSC_RPC_URL when a block/receipt is not served (BlockNotFound,
+     * timeout, rate limit). Set to an empty string to disable.
+     */
+    rpcFallbackUrls: (
+      process.env.BSC_RPC_FALLBACK_URLS ??
+      [
+        "https://bsc-rpc.publicnode.com",
+        "https://bsc-dataseed.bnbchain.org",
+        "https://bsc-dataseed3.binance.org/",
+        "https://bsc-dataseed4.binance.org/",
+        "https://bsc-dataseed1.defibit.io/",
+        "https://bsc-dataseed1.ninicoin.io/",
+      ].join(",")
+    )
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    /** Per-request timeout for the live scan endpoints. */
+    rpcTimeoutMs: num("BSC_RPC_TIMEOUT_MS", 8_000),
+    /** Live pollers stop this many blocks behind the tip (load-balanced RPCs lag a few blocks). */
+    scanLagBlocks: BigInt(num("BSC_SCAN_LAG_BLOCKS", 5)),
+    /** Backoff cap while no endpoint serves the next block. */
+    stallBackoffMaxMs: num("BSC_STALL_BACKOFF_MAX_MS", 120_000),
+    /** A continuous stall longer than this is logged as an error (once per period). */
+    stallEscalateMs: num("BSC_STALL_ESCALATE_MS", 600_000),
     pollMs: num("BSC_POLL_MS", 12_000),
     blozPollMs: num("BLOZ_POLL_MS", 15_000),
   },
