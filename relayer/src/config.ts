@@ -29,9 +29,9 @@ export const config = {
     minWrapBloz: process.env.MIN_WRAP_BLOZ ?? "0.01",
     /** Deducted from native BLOZ payout on unwrap (covers chain tx fee). */
     unwrapNetworkFeeBloz: process.env.UNWRAP_NETWORK_FEE_BLOZ ?? "0.00001",
-    /** Bridge service fee in basis points, applied on wrap (mint) and unwrap (payout). 390 = 3.9%. */
-    bridgeFeeBps: num("BRIDGE_FEE_BPS", 390),
-    /** Dedicated bz1 address that receives the 3.9% bridge fee on wrap (after mint) and unwrap. */
+    /** Bridge service fee in basis points, applied on wrap (mint) and unwrap (payout). 0 = no fee. */
+    bridgeFeeBps: num("BRIDGE_FEE_BPS", 0),
+    /** Dedicated bz1 address that receives the bridge fee on wrap (after mint) and unwrap (unused when fee is 0). */
     feeBz1Address: (() => {
       const v = process.env.BRIDGE_FEE_BZ1_ADDRESS?.trim();
       if (!v) return null;
@@ -65,8 +65,18 @@ export const config = {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
+    /** BSC block when BlozBridge was deployed (used for log backfill if cursor missing). */
+    bridgeDeployBlock: process.env.BSC_BRIDGE_DEPLOY_BLOCK
+      ? BigInt(process.env.BSC_BRIDGE_DEPLOY_BLOCK)
+      : undefined,
+    /** BSC block when BlozWrapClaim was deployed. */
+    wrapClaimDeployBlock: process.env.BSC_WRAP_CLAIM_DEPLOY_BLOCK
+      ? BigInt(process.env.BSC_WRAP_CLAIM_DEPLOY_BLOCK)
+      : undefined,
+    /** Fallback deploy block (~2026-06-08) when specific env vars are unset. */
+    defaultDeployBlock: BigInt(process.env.BSC_DEFAULT_DEPLOY_BLOCK ?? "106550000"),
     /** Max block span per eth_getLogs call (public BSC RPCs reject large ranges). */
-    logChunkBlocks: BigInt(num("BSC_LOG_CHUNK_BLOCKS", 2000)),
+    logChunkBlocks: BigInt(num("BSC_LOG_CHUNK_BLOCKS", 500)),
     chainId: num("BSC_CHAIN_ID", 56),
     operatorKey: req("BSC_OPERATOR_PRIVATE_KEY") as `0x${string}`,
     wBLOZAddress: req("WBLOZ_ADDRESS") as `0x${string}`,

@@ -204,6 +204,9 @@ export function bridgeFeeBps(): number {
 
 /** Amount remaining after the bridge service fee (e.g. 3.9%), floored to 8 decimals. */
 export function applyBridgeFee(amountBloz: number): number {
+  // Exact identity at 0 bps — the float floor below can shave 1e-8 off and
+  // turn the difference into a perpetual 0.00000001 BLOZ dust-fee send.
+  if (config.bloz.bridgeFeeBps === 0) return amountBloz;
   const net = amountBloz * (1 - config.bloz.bridgeFeeBps / 10_000);
   return Math.floor(net * 1e8) / 1e8;
 }

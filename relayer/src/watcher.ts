@@ -6,6 +6,7 @@ import {
   ensureBridgeWallet,
   ensurePublicReserveAddress,
   bridgeFeeBloz,
+  bridgeFeeBps,
   feeBz1Address,
   findRecentPayoutSend,
   getBridgeBalance,
@@ -20,12 +21,8 @@ import {
   wrapMintBloz,
 } from "./bloz.js";
 
-import {
-  fetchClaimEvents,
-  fetchUnwrapEvents,
-  getLatestBlock,
-  getWBLOZTotalSupply,
-} from "./bsc.js";
+import { advanceLogCursor, resolveLogFromBlock } from "./bsc-log-cursor.js";
+import { fetchClaimEvents, fetchUnwrapEvents, getWBLOZTotalSupply } from "./bsc.js";
 
 import {
   expireOldWraps,
@@ -108,25 +105,22 @@ export async function pollClaimEvents(db: Database.Database): Promise<void> {
   try {
     if (!config.bsc.wrapClaimAddress) return;
 
-    const last = getState(db, "last_claim_block");
-    let fromBlock = last ? BigInt(last) + 1n : (await getLatestBlock()) - 5000n;
-    if (fromBlock < 0n) fromBlock = 0n;
-
-    const events = await fetchClaimEvents(fromBlock);
+    const { fromBlock, last } = await resolveLogFromBlock(db, "last_claim_block");
+    const { events, scanEnd } = await fetchClaimEvents(fromBlock);
     for (const ev of events) {
       markWrapMintedFromClaim(db, ev.wrapId, ev.txHash);
       console.log(`Claim confirmed on-chain for wrap ${ev.wrapId} (${ev.txHash})`);
     }
 
-    if (events.length > 0) {
-      const maxBlock = events.reduce((m, e) => (e.blockNumber > m ? e.blockNumber : m), 0n);
-      setState(db, "last_claim_block", maxBlock.toString());
-    } else if (last) {
-      // Advance cursor when idle so a long outage does not create one huge getLogs range.
-      const tip = await getLatestBlock();
-      if (tip > BigInt(last)) setState(db, "last_claim_block", tip.toString());
-    }
+    await advanceLogCursor(
+      db,
+      "last_claim_block",
+      last,
+      events.map((e) => e.blockNumber),
+      scanEnd
+    );
   } catch (err) {
+    // Cursor stays put on failure — the same range is retried next poll.
     console.error("claim event poll failed:", err);
   } finally {
     // Always sweep wrap fees — must not depend on BSC RPC succeeding.
@@ -135,7 +129,7 @@ export async function pollClaimEvents(db: Database.Database): Promise<void> {
 }
 
 async function processWrapFees(db: Database.Database): Promise<void> {
-  if (!feeBz1Address()) return;
+  if (!feeBz1Address() || bridgeFeeBps() === 0) return;
 
   for (const wrap of getMintedWrapsPendingFee(db)) {
     if (!wrap.bloz_amount) continue;
@@ -256,11 +250,8 @@ async function processUnwrapPayouts(db: Database.Database): Promise<void> {
 
 export async function pollUnwrapEvents(db: Database.Database): Promise<void> {
   try {
-    const last = getState(db, "last_unwrap_block");
-    let fromBlock = last ? BigInt(last) + 1n : (await getLatestBlock()) - 5000n;
-    if (fromBlock < 0n) fromBlock = 0n;
-
-    const events = await fetchUnwrapEvents(fromBlock);
+    const { fromBlock, last } = await resolveLogFromBlock(db, "last_unwrap_block");
+    const { events, scanEnd } = await fetchUnwrapEvents(fromBlock);
     for (const ev of events) {
       upsertUnwrap(db, {
         unwrap_id: Number(ev.unwrapId),
@@ -268,16 +259,21 @@ export async function pollUnwrapEvents(db: Database.Database): Promise<void> {
         bz1_address: ev.bz1Address,
         amount_units: ev.amount.toString(),
       });
+      console.log(
+        `Unwrap queued: id=${ev.unwrapId} ${ev.bz1Address} amount=${ev.amount} (block ${ev.blockNumber})`
+      );
     }
 
-    if (events.length > 0) {
-      const maxBlock = events.reduce((m, e) => (e.blockNumber > m ? e.blockNumber : m), 0n);
-      setState(db, "last_unwrap_block", maxBlock.toString());
-    } else if (last) {
-      const tip = await getLatestBlock();
-      if (tip > BigInt(last)) setState(db, "last_unwrap_block", tip.toString());
-    }
+    await advanceLogCursor(
+      db,
+      "last_unwrap_block",
+      last,
+      events.map((e) => e.blockNumber),
+      scanEnd
+    );
   } catch (err) {
+    // Cursor stays put on failure — never skip ahead: a skipped range drops
+    // burned unwraps permanently (how unwraps 3+4 were lost).
     console.error("unwrap event poll failed:", err);
   }
 
@@ -289,7 +285,7 @@ export async function pollUnwrapEvents(db: Database.Database): Promise<void> {
 }
 
 async function processUnwrapFees(db: Database.Database): Promise<void> {
-  if (!feeBz1Address()) return;
+  if (!feeBz1Address() || bridgeFeeBps() === 0) return;
 
   for (const req of getUnwrapsPendingFee(db)) {
     const burned = unitsToBloz(BigInt(req.amount_units));
