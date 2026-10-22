@@ -12,8 +12,11 @@ import {
   feeBz1Address,
   unwrapNetworkFeeBloz,
   unwrapPayoutBloz,
+  validateBlozAddress,
   wrapMintBloz,
 } from "./bloz.js";
+
+import { isValidBz1Address } from "./bz1.js";
 
 import { signWrapClaim, wrapIdToBytes32 } from "./claim.js";
 
@@ -55,7 +58,6 @@ const uuidRe =
 
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const bz1Re = /^bz1[a-z0-9]{10,}$/i;
 
 /** Normalize unwrap row for API responses. */
 function sanitizeUnwrapRow(row: ReturnType<typeof listUnwrapsForEvm>[number]) {
@@ -284,7 +286,7 @@ export function registerApi(app: Express, db: Database.Database): void {
 
     const evmAddress = String(req.body?.evmAddress ?? "").trim();
     const returnBz1Raw = String(req.body?.returnBz1 ?? "").trim();
-    const returnBz1 = returnBz1Raw && bz1Re.test(returnBz1Raw) ? returnBz1Raw : null;
+    const returnBz1 = returnBz1Raw && isValidBz1Address(returnBz1Raw) ? returnBz1Raw : null;
 
     if (!evmRe.test(evmAddress) || !isAddress(evmAddress)) {
 
@@ -615,6 +617,21 @@ export function registerApi(app: Express, db: Database.Database): void {
   });
 
 
+
+  /**
+   * Pre-flight check the web app must pass before it lets the user sign unwrap():
+   * the contract only checks the "bz1" prefix and burns immediately, so an invalid
+   * address here would mean burned wBLOZ that can never be paid out.
+   */
+  app.get("/api/validate-address", async (req, res) => {
+    const address = String(req.query.address ?? "").trim();
+    try {
+      const v = await validateBlozAddress(address);
+      res.json({ ok: true, address, ...v });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: String(err) });
+    }
+  });
 
   app.get("/api/unwrap", (req, res) => {
 

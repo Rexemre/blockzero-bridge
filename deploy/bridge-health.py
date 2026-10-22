@@ -23,7 +23,8 @@ Outputs (STATE_DIR, default /var/lib/bridge-health):
 Telegram: optional, TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID from /etc/bridge-health.env — sent on new alarm,
 escalation, every REMIND_HOURS while an alarm persists, and when it is resolved.
 
-Known/accepted problems can be silenced in /etc/bridge-health.env, e.g. ACK_FAILED_UNWRAPS=24 (comma list).
+Known/accepted problems can be silenced in /etc/bridge-health.env, e.g. ACK_FAILED_UNWRAPS=24 (comma list),
+ACK_REFUND_QUEUED_UNWRAPS=43 (invalid bz1 target, wBLOZ refund to the BSC sender pending).
 
   python3 bridge-health.py            # normal run (timer)
   python3 bridge-health.py --dry-run  # no restart, no Telegram, no state write; prints status
@@ -94,6 +95,7 @@ MEM_WARN_MB = cfg("MEM_AVAILABLE_WARN_MB", 400)
 RESTART_COOLDOWN_MIN = cfg("RESTART_COOLDOWN_MIN", 30)
 REMIND_HOURS = cfg("REMIND_HOURS", 6)
 ACK_FAILED_UNWRAPS = {int(x) for x in cfg("ACK_FAILED_UNWRAPS", "").split(",") if x.strip().isdigit()}
+ACK_REFUND_QUEUED = {int(x) for x in cfg("ACK_REFUND_QUEUED_UNWRAPS", "").split(",") if x.strip().isdigit()}
 ACK_RESERVE_DEFICIT = cfg("ACK_RESERVE_DEFICIT_BLOZ", 0.0)   # accept a known deficit up to this amount
 
 DRY = "--dry-run" in sys.argv
@@ -274,6 +276,15 @@ def check_transfers(r: Result, db):
     if new_failed:
         r.add("transfers:unwrap_failed", "crit",
               f"Unwrap(s) {new_failed} endgueltig fehlgeschlagen — wBLOZ verbrannt, BLOZ nicht ausgezahlt")
+    # refund_queued: relayer found the bz1 target invalid — BLOZ can never be paid, the burned
+    # wBLOZ must be re-minted to the BSC sender (deploy/refund-unwrap-mint.mjs, needs Marlon's ok).
+    queued = [u for (u,) in db.execute("SELECT unwrap_id FROM unwrap_requests WHERE status='refund_queued'")]
+    r.metrics["unwraps_refund_queued"] = queued
+    new_queued = [u for u in queued if u not in ACK_REFUND_QUEUED]
+    if new_queued:
+        r.add("transfers:unwrap_refund_queued", "warn",
+              f"Unwrap(s) {new_queued} mit ungueltiger bz1-Adresse — wBLOZ verbrannt, Rueckerstattung als wBLOZ "
+              f"an den BSC-Absender offen (refund-unwrap-mint.mjs)")
     orphan = db.execute(
         "SELECT COUNT(*), MIN(created_at) FROM orphan_deposits WHERE status IN ('pending','refunding','failed')").fetchone()
     r.metrics["orphans_open"] = orphan[0]
@@ -445,7 +456,7 @@ def main() -> int:
         "checks": r.checks,
         "actions": r.actions,
         "metrics": r.metrics,
-        "acknowledged": {"failed_unwraps": sorted(ACK_FAILED_UNWRAPS), "reserve_deficit_bloz": ACK_RESERVE_DEFICIT},
+        "acknowledged": {"failed_unwraps": sorted(ACK_FAILED_UNWRAPS), "refund_queued_unwraps": sorted(ACK_REFUND_QUEUED), "reserve_deficit_bloz": ACK_RESERVE_DEFICIT},
         "restarts_7d": [x for x in prev.get("restarts", []) if x["ts"] >= iso(NOW - 7 * 86400)],
         "telegram": bool(CFG.get("TELEGRAM_BOT_TOKEN") and CFG.get("TELEGRAM_CHAT_ID")),
     }

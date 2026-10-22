@@ -31,4 +31,8 @@ python3 $H --dry-run > "$T/out"; expect "stuck cursor triggers restart" 'wuerde 
 # 4) stuck unwrap payout
 sqlite3 "$T/bridge.db" "UPDATE unwrap_requests SET status='pending', created_at=created_at WHERE unwrap_id=42"
 python3 $H --dry-run > "$T/out"; expect "open unwrap older than threshold" '"transfers:unwrap_open"'
+
+# 5) unwrap with invalid bz1 target parked for a wBLOZ refund -> warn (not the "failed" crit)
+sqlite3 "$T/bridge.db" "UPDATE unwrap_requests SET status='refund_queued' WHERE unwrap_id=41"
+python3 $H --dry-run > "$T/out"; expect "refund-queued unwrap reported" '"transfers:unwrap_refund_queued"'
 exit $fail

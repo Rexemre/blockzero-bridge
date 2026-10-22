@@ -117,7 +117,7 @@
   }
 
   function bridgeFeeBps() {
-    return Number(status?.bridgeFeeBps ?? 390);
+    return Number(status?.bridgeFeeBps ?? 0);
   }
 
   function bridgeFeePct() {
@@ -338,6 +338,8 @@
     $("connect").textContent = account.slice(0, 6) + "…" + account.slice(-4);
     $("create-wrap").disabled = false;
     $("do-unwrap").disabled = false;
+    const connectHint = $("wrap-connect-hint");
+    if (connectHint) connectHint.hidden = true;
     refreshHistory();
     refreshUnwrapBalance();
     refreshUnwrapHistory();
@@ -346,17 +348,26 @@
   $("connect").addEventListener("click", () => connect().catch((e) => alert(rpcErrorHint(e))));
 
   document.querySelectorAll(".tab").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      const t = btn.dataset.tab;
-      $("panel-wrap").hidden = t !== "wrap";
-      $("panel-unwrap").hidden = t !== "unwrap";
-      if (t === "unwrap" && account) {
-        refreshUnwrapBalance().catch(() => {});
-        refreshUnwrapHistory().catch(() => {});
-      }
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+  });
+
+  function switchTab(tabName) {
+    document.querySelectorAll(".tab").forEach((b) => {
+      b.classList.toggle("active", b.dataset.tab === tabName);
     });
+    $("panel-wrap").hidden = tabName !== "wrap";
+    $("panel-unwrap").hidden = tabName !== "unwrap";
+    if (tabName === "unwrap" && account) {
+      refreshUnwrapBalance().catch(() => {});
+      refreshUnwrapHistory().catch(() => {});
+    }
+  }
+
+  const hashTab = location.hash.replace("#", "");
+  if (hashTab === "unwrap" || hashTab === "wrap") switchTab(hashTab);
+  window.addEventListener("hashchange", () => {
+    const t = location.hash.replace("#", "");
+    if (t === "unwrap" || t === "wrap") switchTab(t);
   });
 
   $("create-wrap").addEventListener("click", async () => {
@@ -599,6 +610,34 @@
     });
   }
 
+  function byCreatedDesc(a, b) {
+    return (b.created_at ?? 0) - (a.created_at ?? 0);
+  }
+
+  function isWrapDone(w) {
+    return w.status === "minted" || w.status === "expired" || w.status === "refunded";
+  }
+
+  function isUnwrapDone(u) {
+    return u.status === "sent" || u.status === "failed" || u.status === "refunded";
+  }
+
+  /** Completed entries only grow over time, so they collapse by default; open state survives re-renders. */
+  function renderDoneSection(items, cardFn) {
+    if (!items.length) return "";
+    return `<details class="history-done">
+        <summary>Completed (${items.length})</summary>
+        <div class="wrap-list history-done-body">${items.map(cardFn).join("")}</div>
+      </details>`;
+  }
+
+  function withPreservedDoneState(el, render) {
+    const wasOpen = el.querySelector(".history-done")?.open ?? false;
+    render();
+    const details = el.querySelector(".history-done");
+    if (details && wasOpen) details.open = true;
+  }
+
   async function refreshHistory() {
     if (!account) return;
     const r = await fetch("/api/wrap?evmAddress=" + encodeURIComponent(account));
@@ -614,12 +653,21 @@
       return;
     }
 
-    el.innerHTML =
-      `<div class="wrap-history-head">
-        <h2 class="wrap-history-title">Your wrap requests</h2>
-        <p class="wrap-history-sub">Status updates every 30 seconds. Keep this page open or reconnect your wallet to check progress.</p>
-      </div>
-      <div class="wrap-list">${data.requests.map((w) => renderWrapCard(w, minConf, minWrap)).join("")}</div>`;
+    const sorted = [...data.requests].sort(byCreatedDesc);
+    const openWraps = sorted.filter((w) => !isWrapDone(w));
+    const done = sorted.filter(isWrapDone);
+
+    withPreservedDoneState(el, () => {
+      el.innerHTML =
+        `<div class="wrap-history-head">
+          <h2 class="wrap-history-title">Your wrap requests</h2>
+          <p class="wrap-history-sub">Status updates every 30 seconds. Keep this page open or reconnect your wallet to check progress.</p>
+        </div>` +
+        (openWraps.length
+          ? `<div class="wrap-list">${openWraps.map((w) => renderWrapCard(w, minConf, minWrap)).join("")}</div>`
+          : `<p class="wrap-history-sub">No active wrap requests right now.</p>`) +
+        renderDoneSection(done, (w) => renderWrapCard(w, minConf, minWrap));
+    });
     bindCopyButtons(el);
     bindWrapActions(el);
 
@@ -639,8 +687,52 @@
     }
   }
 
-  function isValidBz1(addr) {
-    return addr.startsWith("bz1") && addr.length >= 14 && !/\s/.test(addr);
+  function escHtml(v) {
+    return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
+
+  /** Offline bech32 check (web/bz1-address.js): prefix, charset, checksum, length. */
+  function checkBz1(addr) {
+    return typeof window.checkBz1Address === "function"
+      ? window.checkBz1Address(addr)
+      : { valid: false, reason: "Address check unavailable — reload the page." };
+  }
+
+  function updateBz1Hint() {
+    const input = $("unwrap-bz1");
+    const hint = $("unwrap-bz1-hint");
+    if (!input || !hint) return;
+    const v = input.value.trim();
+    if (!v) {
+      hint.hidden = true;
+      input.removeAttribute("aria-invalid");
+      return;
+    }
+    const r = checkBz1(v);
+    hint.hidden = false;
+    hint.className = "unwrap-note " + (r.valid ? "bz1-ok" : "bz1-bad");
+    hint.textContent = r.valid ? "✓ Valid Block Zero address (checksum OK)." : "✗ " + r.reason;
+    input.setAttribute("aria-invalid", r.valid ? "false" : "true");
+  }
+  $("unwrap-bz1")?.addEventListener("input", updateBz1Hint);
+
+  /**
+   * The bridge contract only checks the "bz1" prefix and burns wBLOZ immediately, so an
+   * invalid address would burn funds that can never be paid out (unwrap 24). Offline check,
+   * then the relayer's node check; if the node can't confirm, don't let the user burn.
+   */
+  async function verifyBz1BeforeBurn(addr) {
+    const offline = checkBz1(addr);
+    if (!offline.valid) return offline;
+    try {
+      const r = await fetch("/api/validate-address?address=" + encodeURIComponent(addr));
+      const data = await r.json();
+      if (!r.ok || !data.ok) throw new Error(data.error || "HTTP " + r.status);
+      if (!data.valid) return { valid: false, reason: data.reason || "Address rejected by the Block Zero node." };
+      return { valid: true };
+    } catch (e) {
+      return { valid: false, reason: "Could not verify the address with the bridge right now — nothing was burned, please try again in a minute." };
+    }
   }
 
   async function refreshUnwrapBalance() {
@@ -665,6 +757,8 @@
     if (st === "sending") return "Sending BLOZ";
     if (st === "sent") return "Completed";
     if (st === "failed") return "Failed";
+    if (st === "refund_queued") return "Refund pending";
+    if (st === "refunded") return "Refunded";
     return st;
   }
 
@@ -675,15 +769,23 @@
       ? `<a href="https://explorer.bloz.org/tx/${u.bloz_txid}" target="_blank" rel="noopener">BLOZ payout tx</a>`
       : "";
     const hint = u.status === "sending"
-      ? `<p class="wrap-hint">Sending <strong>${payout != null ? payout.toFixed(8) : "?"} BLOZ</strong> to <code>${u.bz1_address}</code>…</p>`
+      ? `<p class="wrap-hint">Sending <strong>${payout != null ? payout.toFixed(8) : "?"} BLOZ</strong> to <code>${escHtml(u.bz1_address)}</code>…</p>`
       : u.status === "pending"
       ? `<p class="wrap-hint">Unwrap confirmed on BSC (${Number(u.amountBloz).toFixed(8)} wBLOZ burned). ` +
-        `Payout target: <strong>${payout != null ? payout.toFixed(8) : "?"} BLOZ</strong> to <code>${u.bz1_address}</code> ` +
+        `Payout target: <strong>${payout != null ? payout.toFixed(8) : "?"} BLOZ</strong> to <code>${escHtml(u.bz1_address)}</code> ` +
         `(after ${bridgeFeePct().toFixed(1)}% bridge fee + ${fee.toFixed(8)} BLOZ network fee). ` +
         `Native payouts usually arrive within a few minutes; during high load it can take longer.</p>`
+      : u.status === "refund_queued"
+      ? `<p class="wrap-hint wrap-hint--warn">The receive address is not a valid Block Zero address, so no BLOZ could be sent. ` +
+        `Your ${Number(u.amountBloz).toFixed(8)} wBLOZ will be returned to your BSC wallet — no action needed.</p>`
+      : u.status === "refunded"
+      ? `<p class="wrap-hint wrap-hint--ok">The receive address was invalid, so your <strong>${Number(u.amountBloz).toFixed(8)} wBLOZ</strong> ` +
+        `were returned to your BSC wallet` +
+        (u.refund_evm_txid ? ` (<a href="https://bscscan.com/tx/${escHtml(u.refund_evm_txid)}" target="_blank" rel="noopener">refund tx</a>)` : "") +
+        `. You can unwrap again with a valid bz1 address.</p>`
       : u.status === "sent"
         ? `<p class="wrap-hint wrap-hint--ok">Sent <strong>${Number(u.payout_bloz ?? payout ?? u.amountBloz).toFixed(8)} BLOZ</strong> ` +
-        `to <code>${u.bz1_address}</code> (${Number(u.amountBloz).toFixed(8)} wBLOZ burned, ${bridgeFeePct().toFixed(1)}% bridge fee + ${fee.toFixed(8)} network fee deducted).</p>`
+        `to <code>${escHtml(u.bz1_address)}</code> (${Number(u.amountBloz).toFixed(8)} wBLOZ burned, ${bridgeFeePct().toFixed(1)}% bridge fee + ${fee.toFixed(8)} network fee deducted).</p>`
         : `<p class="wrap-hint wrap-hint--warn">Payout failed — check your bz1 address and try again or contact support.</p>`;
 
     return `
@@ -712,7 +814,7 @@
           </div>
           <div class="wrap-row">
             <span class="wrap-label">Receive address</span>
-            <code class="wrap-value">${u.bz1_address}</code>
+            <code class="wrap-value">${escHtml(u.bz1_address)}</code>
           </div>
           <div class="wrap-row">
             <span class="wrap-label">Requested</span>
@@ -734,12 +836,21 @@
       el.innerHTML = "";
       return;
     }
-    el.innerHTML =
-      `<div class="wrap-history-head">
-        <h2 class="wrap-history-title">Your unwrap requests</h2>
-        <p class="wrap-history-sub">Status updates every 30 seconds after you confirm unwrap on BSC.</p>
-      </div>
-      <div class="wrap-list">${data.requests.map(renderUnwrapCard).join("")}</div>`;
+    const sorted = [...data.requests].sort(byCreatedDesc);
+    const active = sorted.filter((u) => !isUnwrapDone(u));
+    const done = sorted.filter(isUnwrapDone);
+
+    withPreservedDoneState(el, () => {
+      el.innerHTML =
+        `<div class="wrap-history-head">
+          <h2 class="wrap-history-title">Your unwrap requests</h2>
+          <p class="wrap-history-sub">Status updates every 30 seconds after you confirm unwrap on BSC.</p>
+        </div>` +
+        (active.length
+          ? `<div class="wrap-list">${active.map(renderUnwrapCard).join("")}</div>`
+          : `<p class="wrap-history-sub">No active unwrap requests right now.</p>`) +
+        renderDoneSection(done, renderUnwrapCard);
+    });
   }
 
   $("do-unwrap").addEventListener("click", async () => {
@@ -750,8 +861,14 @@
       alert("Enter a valid wBLOZ amount.");
       return;
     }
-    if (!isValidBz1(bz1)) {
-      alert("Enter a valid Block Zero address starting with bz1 (at least 14 characters).");
+    const offlineCheck = checkBz1(bz1);
+    if (!offlineCheck.valid) {
+      updateBz1Hint();
+      alert(`This is not a valid Block Zero address:
+
+${offlineCheck.reason}
+
+Nothing was burned. Copy the address directly from your Block Zero wallet.`);
       return;
     }
     const payout = calcUnwrapPayout(Number(amountStr));
@@ -766,6 +883,33 @@
       );
       if (!ok) return;
     }
+    $("do-unwrap").disabled = true;
+    $("do-unwrap").textContent = "Checking address…";
+    const nodeCheck = await verifyBz1BeforeBurn(bz1);
+    $("do-unwrap").disabled = false;
+    $("do-unwrap").textContent = "Unwrap to BLOZ";
+    if (!nodeCheck.valid) {
+      alert(`Address check failed:
+
+${nodeCheck.reason}`);
+      return;
+    }
+    const confirmed = confirm(
+      `Please double-check before you burn:
+
+` +
+      `Burn: ${Number(amountStr).toFixed(8)} wBLOZ on BSC
+` +
+      `Receive: ${payout.toFixed(8)} BLOZ
+` +
+      `To Block Zero address:
+${bz1}
+
+` +
+      `Compare it character by character with your Block Zero wallet. ` +
+      `Unwrapping burns wBLOZ and cannot be undone.`
+    );
+    if (!confirmed) return;
     unwrapInFlight = true;
     $("do-unwrap").disabled = true;
     $("do-unwrap").textContent = "Confirm in MetaMask…";
@@ -789,7 +933,7 @@
       const tx = await bridge.unwrap(amount, bz1);
       $("unwrap-status").innerHTML =
         `Unwrap submitted: <a href="https://bscscan.com/tx/${tx.hash}" target="_blank" rel="noopener">View on BscScan</a><br>` +
-        `You will receive about <strong>${payout.toFixed(8)} BLOZ</strong> at <code>${bz1}</code> ` +
+        `You will receive about <strong>${payout.toFixed(8)} BLOZ</strong> at <code>${escHtml(bz1)}</code> ` +
         `( ${Number(amountStr).toFixed(8)} wBLOZ burned, ${bridgeFeePct().toFixed(1)}% bridge fee + ${unwrapNetworkFee().toFixed(8)} network fee deducted ).`;
       await tx.wait();
       $("unwrap-status").innerHTML +=

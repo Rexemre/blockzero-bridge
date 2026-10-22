@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BLOZ Bridge — Wrap &amp; Unwrap on BSC</title>
-  <meta name="description" content="Wrap native BLOZ to wBLOZ on BNB Smart Chain for DEX trading. Fully backed reserve · 3.9% bridge fee." />
+  <meta name="description" content="Wrap native BLOZ to wBLOZ on BNB Smart Chain for DEX trading. Fully backed reserve · 0% bridge fee." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
@@ -14,7 +14,7 @@
   <link rel="apple-touch-icon" href="https://bloz.org/assets/apple-touch-icon.png?v=11" />
   <meta name="theme-color" content="#05070A" />
   <link rel="stylesheet" href="./styles.css?v=2" />
-  <link rel="stylesheet" href="https://bloz.org/assets/bloz-header.css?v=12" />
+  <link rel="stylesheet" href="https://bloz.org/assets/bloz-header.css?v=13" />
 </head>
 <body>
   <nav class="bz-suite" aria-label="Block Zero sites">
@@ -48,7 +48,7 @@
 
       <!-- Trust badges -->
       <div class="hero-badges">
-        <span class="hero-badge teal"><strong>3.9%</strong>&nbsp;bridge fee</span>
+        <span class="hero-badge teal"><strong>0%</strong>&nbsp;bridge fee</span>
         <span class="hero-badge ok">✓ Fully backed</span>
         <span class="hero-badge"><strong>6</strong>&nbsp;confirmations required</span>
         <span class="hero-badge">Auto-refund on failure</span>
@@ -88,13 +88,14 @@
       <ol class="steps">
         <li>Connect your BSC wallet (MetaMask) using the button above.</li>
         <li>Click <strong>Create deposit address</strong> to get a unique BLOZ address (one active per wallet).</li>
-        <li>Send native BLOZ in <strong>one transaction</strong> — any amount ≥ 0.01 BLOZ. You receive <strong>96.1%</strong> as wBLOZ (<strong>3.9% bridge fee</strong>).</li>
+        <li>Send native BLOZ in <strong>one transaction</strong> — any amount ≥ 0.01 BLOZ. You receive <strong>100%</strong> as wBLOZ (<strong>0% bridge fee</strong>).</li>
         <li>Do <strong>not</strong> send twice to the same address. Finish or wait for expiry before creating a new one.</li>
         <li>After <span id="min-conf">6</span> confirmations, click <strong>Claim wBLOZ</strong> — you pay a small BNB gas fee.</li>
         <li>Claim within <span id="claim-expiry-hours">7</span> days after deposit confirms — otherwise BLOZ is <strong>auto-refunded</strong> to the sending address (minus network fee).</li>
         <li><strong>Add wBLOZ in MetaMask</strong> — it will not appear automatically (see section below).</li>
       </ol>
       <button id="create-wrap" class="btn btn-primary" disabled>Create deposit address</button>
+      <p id="wrap-connect-hint" class="unwrap-note">Connect your wallet above first — the button unlocks once you are connected.</p>
       <div id="wrap-result" class="result" hidden></div>
       <div id="wrap-history" class="history"></div>
     </section>
@@ -107,7 +108,7 @@
         <li>Enter the amount and your Block Zero receive address (<code>bz1…</code>).</li>
         <li>Approve wBLOZ (first time only) and confirm unwrap — <strong>you pay BNB gas</strong>.</li>
         <li>Native BLOZ is sent to your <code>bz1…</code> address after relayer processing (usually minutes).</li>
-        <li>Payout = unwrap amount <strong>minus 3.9% bridge fee</strong> and a small network fee (see below).</li>
+        <li>Payout = unwrap amount minus a small network fee only (see below).</li>
       </ol>
       <p id="unwrap-balance" class="unwrap-balance">Connect wallet to see your wBLOZ balance.</p>
       <p id="unwrap-fee-note" class="unwrap-note">Bridge fee + network fee: loading…</p>
@@ -116,6 +117,7 @@
       <p id="unwrap-estimate" class="unwrap-note" hidden></p>
       <label for="unwrap-bz1">Block Zero address (bz1…)</label>
       <input id="unwrap-bz1" type="text" placeholder="bz1…" autocomplete="off" spellcheck="false" />
+      <p id="unwrap-bz1-hint" class="unwrap-note" aria-live="polite" hidden></p>
       <button id="do-unwrap" class="btn btn-primary" disabled>Unwrap to BLOZ</button>
       <p class="unwrap-note">You pay BNB gas for approve + unwrap · Bridge reserve must cover your amount</p>
       <div id="unwrap-status" class="result" hidden></div>
@@ -150,7 +152,7 @@
       <ul class="trust-list">
         <li><strong>Custodial model:</strong> unwrap payouts and auto-refunds are sent from the bridge BLOZ reserve.</li>
         <li><strong>Claim step:</strong> after your BLOZ deposit confirms, it sits in the bridge reserve until you claim wBLOZ on BSC — shown as "awaiting claim" in the live reserves line above.</li>
-        <li><strong>Bridge fee:</strong> 3.9% is deducted on wrap (you receive 96.1% as wBLOZ) and on unwrap (you receive 96.1% as BLOZ, minus network fee). The fee stays in the reserve, so wBLOZ remains over-backed.</li>
+        <li><strong>Bridge fee:</strong> <strong>0%</strong> — wrap and unwrap are fee-free. Only the small Block Zero network fee applies on unwrap and refunds.</li>
         <li><strong>Auto-refund:</strong> unclaimed wraps, expired addresses, duplicate deposits, and amounts below the minimum are returned to the original <code>bz1…</code> sender minus the Block Zero network fee.</li>
         <li><strong>Verify yourself:</strong> compare live reserves above with <code>wBLOZ.totalSupply()</code> on BscScan and the bridge wallet balance on the Block Zero explorer.</li>
       </ul>
@@ -167,8 +169,9 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
-  <script src="https://bloz.org/assets/bloz-header.js?v=8" defer></script>
-  <script src="./app.js?v=20260616"></script>
+  <script src="https://bloz.org/assets/bloz-header.js?v=9" defer></script>
+  <script src="./bz1-address.js?v=20260923"></script>
+  <script src="./app.js?v=20260923"></script>
   <script>
   /* Scroll entrance animations */
   (function () {

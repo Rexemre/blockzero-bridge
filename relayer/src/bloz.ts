@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { config } from "./config.js";
+import { checkBz1Address, isValidBz1Address } from "./bz1.js";
 
 const exec = promisify(execFile);
 
@@ -96,7 +97,36 @@ export async function findRecentPayoutSend(
   return null;
 }
 
+export type BlozAddressVerdict =
+  | { valid: true; nodeChecked: boolean }
+  | { valid: false; reason: string; nodeChecked: boolean };
+
+/**
+ * Offline bech32 check first, then the node's own `validateaddress` (authoritative for
+ * this chain's params). Node unreachable → offline verdict with nodeChecked=false; callers
+ * that move funds must treat that as "retry later", never as "invalid".
+ */
+export async function validateBlozAddress(address: string): Promise<BlozAddressVerdict> {
+  const offline = checkBz1Address(address);
+  if (!offline.valid) return { valid: false, reason: offline.reason, nodeChecked: false };
+  try {
+    const raw = await runCli(["validateaddress", address]);
+    const res = JSON.parse(raw) as { isvalid?: boolean; error?: string };
+    if (res.isvalid) return { valid: true, nodeChecked: true };
+    return { valid: false, reason: res.error || "Block Zero node rejected the address.", nodeChecked: true };
+  } catch {
+    return { valid: true, nodeChecked: false };
+  }
+}
+
+/** bitcoin-cli error for a malformed destination (RPC_INVALID_ADDRESS_OR_KEY). */
+export function isInvalidAddressError(msg: string): boolean {
+  return /error code: -5\b/.test(msg) && /Invalid .*address/i.test(msg);
+}
+
 export async function sendBloz(toAddress: string, amountBloz: number): Promise<string> {
+  // Never broadcast to an address that fails the offline checksum (defence in depth).
+  if (!isValidBz1Address(toAddress)) throw new Error(`Invalid Block Zero address: ${toAddress}`);
   // Bridge node often has no fee estimates yet — fee_rate=1 sat/vB (same as skim-fee-surplus.py).
   const txid = await runCli([
     "-named",

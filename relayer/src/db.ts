@@ -8,7 +8,12 @@ export type WrapStatus =
   | "expired"
   | "refunding"
   | "refunded";
-export type UnwrapStatus = "pending" | "sending" | "sent" | "failed";
+/**
+ * refund_queued: wBLOZ was burned but the bz1 target is invalid — never paid out, waits for a
+ * wBLOZ refund to the BSC sender (deploy/refund-unwrap-mint.mjs); bridge-health alarms on it.
+ * refunded: wBLOZ re-minted to the sender (refund_evm_txid).
+ */
+export type UnwrapStatus = "pending" | "sending" | "sent" | "failed" | "refund_queued" | "refunded";
 export type OrphanReason =
   | "below_min"
   | "expired_address"
@@ -71,6 +76,8 @@ export interface UnwrapRequest {
   created_at: number;
   fee_bloz: number | null;
   fee_txid: string | null;
+  refund_evm_txid: string | null;
+  refunded_at: number | null;
 }
 
 export function openDb(dbPath: string): Database.Database {
@@ -140,6 +147,8 @@ export function openDb(dbPath: string): Database.Database {
   for (const [col, def] of [
     ["fee_bloz", "REAL"],
     ["fee_txid", "TEXT"],
+    ["refund_evm_txid", "TEXT"],
+    ["refunded_at", "INTEGER"],
   ] as const) {
     try {
       db.prepare(`SELECT ${col} FROM unwrap_requests LIMIT 1`).get();
@@ -489,7 +498,7 @@ export function upsertUnwrap(
     | "attempt_count"
     | "last_attempt_at"
     | "last_error"
-    | "created_at"
+    | "created_at" | "refund_evm_txid" | "refunded_at"
     | "status"
     | "fee_bloz"
     | "fee_txid"
@@ -603,6 +612,23 @@ export function recordUnwrapSendFailure(
   db.prepare(
     `UPDATE unwrap_requests SET status='pending', last_error=? WHERE unwrap_id=? AND status='sending' AND bloz_txid IS NULL`
   ).run(error.slice(0, 500), unwrapId);
+}
+
+/** Burned unwrap with an invalid bz1 target: stop payout attempts, park it for a wBLOZ refund. */
+export function queueUnwrapRefund(db: Database.Database, unwrapId: number, reason: string): boolean {
+  const r = db
+    .prepare(
+      `UPDATE unwrap_requests SET status='refund_queued', last_error=?
+       WHERE unwrap_id=? AND status IN ('pending', 'sending', 'failed') AND bloz_txid IS NULL`
+    )
+    .run(reason.slice(0, 500), unwrapId);
+  return r.changes > 0;
+}
+
+export function listUnwrapRefundQueue(db: Database.Database): UnwrapRequest[] {
+  return db
+    .prepare(`SELECT * FROM unwrap_requests WHERE status='refund_queued' ORDER BY unwrap_id ASC`)
+    .all() as UnwrapRequest[];
 }
 
 export function listUnwrapsForEvm(db: Database.Database, evm: string, limit = 20): UnwrapRequest[] {

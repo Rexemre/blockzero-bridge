@@ -12,12 +12,14 @@ import {
   getBridgeBalance,
   getDepositSenderBz1,
   isBridgeReserveAddress,
+  isInvalidAddressError,
   listRecentReceives,
   sendBridgeFee,
   sendBloz,
   unitsToBloz,
   unwrapNetworkFeeBloz,
   unwrapPayoutBloz,
+  validateBlozAddress,
   wrapMintBloz,
 } from "./bloz.js";
 
@@ -35,6 +37,7 @@ import {
   getWrapByDeposit,
   markWrapClaimable,
   markWrapMintedFromClaim,
+  queueUnwrapRefund,
   recordUnwrapSendFailure,
   setState,
   setUnwrapFeeSent,
@@ -200,6 +203,18 @@ async function processUnwrapPayouts(db: Database.Database): Promise<void> {
 
     if (await recoverInFlightUnwrap(db, req, payout)) continue;
 
+    // Invalid bz1 target: the wBLOZ is already burned, so retrying can never succeed.
+    // Park it in the refund queue (bridge-health alarms) instead of burning attempts.
+    const target = await validateBlozAddress(req.bz1_address);
+    if (!target.valid) {
+      if (queueUnwrapRefund(db, req.unwrap_id, `invalid bz1 address: ${target.reason}`)) {
+        console.error(
+          `Unwrap ${req.unwrap_id}: invalid bz1 address ${req.bz1_address} (${target.reason}) — queued for wBLOZ refund to ${req.evm_address}`
+        );
+      }
+      continue;
+    }
+
     if (req.status === "sending" || req.status === "pending") {
       if (req.last_attempt_at && now - req.last_attempt_at < retryMs) continue;
     }
@@ -243,6 +258,11 @@ async function processUnwrapPayouts(db: Database.Database): Promise<void> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Unwrap payout attempt failed ${req.unwrap_id}:`, msg);
+      if (isInvalidAddressError(msg)) {
+        // Node rejected the destination (validateaddress was unreachable earlier) — same as above.
+        queueUnwrapRefund(db, req.unwrap_id, `invalid bz1 address: ${msg}`);
+        continue;
+      }
       recordUnwrapSendFailure(db, req.unwrap_id, msg, maxAttempts);
     }
   }
