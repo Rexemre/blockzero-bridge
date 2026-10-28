@@ -277,7 +277,7 @@ def check_transfers(r: Result, db):
         r.add("transfers:unwrap_failed", "crit",
               f"Unwrap(s) {new_failed} endgueltig fehlgeschlagen — wBLOZ verbrannt, BLOZ nicht ausgezahlt")
     # refund_queued: relayer found the bz1 target invalid — BLOZ can never be paid, the burned
-    # wBLOZ must be re-minted to the BSC sender (deploy/refund-unwrap-mint.mjs, needs Marlon's ok).
+    # wBLOZ must be re-minted to the BSC sender (deploy/refund-unwrap-mint.mjs, needs rexemre's ok).
     queued = [u for (u,) in db.execute("SELECT unwrap_id FROM unwrap_requests WHERE status='refund_queued'")]
     r.metrics["unwraps_refund_queued"] = queued
     new_queued = [u for u in queued if u not in ACK_REFUND_QUEUED]
