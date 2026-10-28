@@ -1,0 +1,23 @@
+/* «Ask AI» on bridge.bloz.org (Task 0e29). Deliberately NO script in this page: a <details> toggles a sandboxed iframe of
+   https://bloz.org/ai-chat/ (own origin, no access to this page, no top navigation, always a guest). Pure CSS. */
+.bzai-dock { position: fixed; right: 20px; bottom: 20px; z-index: 2147483000; margin: 0; font: 700 15px/1.2 "Inter", system-ui, sans-serif; }
+.bzai-dock > summary { list-style: none; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; padding: 12px 20px; border-radius: 99px;
+	border: 1px solid #2EE6A8; background: linear-gradient(180deg, #2EE6A8, #1fbf8a); color: #03130d; user-select: none;
+	box-shadow: 0 8px 28px rgba(0,0,0,.5), 0 0 22px rgba(46,230,168,.35); float: right; }
+.bzai-dock > summary::-webkit-details-marker { display: none; }
+.bzai-dock > summary:hover { box-shadow: 0 8px 28px rgba(0,0,0,.5), 0 0 30px rgba(46,230,168,.55); }
+.bzai-dock > summary:focus-visible { outline: 2px solid #6FE7FF; outline-offset: 2px; }
+.bzai-dock-dot { width: 10px; height: 10px; border-radius: 50%; background: #03130d; box-shadow: 0 0 0 3px rgba(3,19,13,.25); }
+.bzai-dock .bzai-dock-close { display: none; }
+.bzai-dock[open] .bzai-dock-close { display: inline; }
+.bzai-dock[open] .bzai-dock-open { display: none; }
+.bzai-dock[open] > summary { background: #161d27; color: #F5F7FA; border-color: rgba(111,231,255,.35); }
+.bzai-dock[open] .bzai-dock-dot { background: #2EE6A8; }
+.bzai-dock iframe { position: fixed; right: 20px; bottom: 82px; width: min(420px, calc(100vw - 24px)); height: min(600px, calc(100vh - 110px));
+	border: 1px solid rgba(111,231,255,.35); border-radius: 20px; background: #11161D; box-shadow: 0 18px 60px rgba(0,0,0,.65); color-scheme: dark; }
+@media (max-width: 640px) {
+	.bzai-dock { right: 14px; bottom: 14px; }
+	.bzai-dock > summary { padding: 11px 16px; }
+	.bzai-dock iframe { right: 0; left: 0; top: 0; bottom: auto; width: 100vw; height: calc(100vh - 72px); height: calc(100dvh - 72px); border-radius: 0; border: 0; border-bottom: 1px solid rgba(111,231,255,.35); }
+}
+@media print { .bzai-dock { display: none; } }
