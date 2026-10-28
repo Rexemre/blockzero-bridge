@@ -186,10 +186,24 @@ export async function getDepositSenderBz1(txid: string): Promise<string | null> 
   }
 }
 
+/** Any own-wallet address labelled bridge-reserve* or reserve-topup* is an operator top-up address, never a user wrap deposit. */
+export function isReserveLabel(label: unknown): boolean {
+  return typeof label === "string" && /^(bridge-reserve|reserve-topup)/.test(label);
+}
+
 const RESERVE_FUNDING_LABELS = ["bridge-reserve-public", "bridge-reserve-funding"] as const;
 
 /** Incoming BLOZ to these labels stays in the bridge wallet (no orphan auto-refund). */
 export async function isBridgeReserveAddress(address: string): Promise<boolean> {
+  try {
+    const info = JSON.parse(await runCli(["getaddressinfo", address])) as {
+      ismine?: boolean;
+      labels?: unknown;
+    };
+    if (info.ismine && Array.isArray(info.labels) && info.labels.some(isReserveLabel)) return true;
+  } catch {
+    /* fall through to the fixed-label lookup */
+  }
   for (const label of RESERVE_FUNDING_LABELS) {
     try {
       const raw = await runCli(["getaddressesbylabel", label]);
