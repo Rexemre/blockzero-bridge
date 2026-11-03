@@ -15,7 +15,7 @@ Users trust the bridge operator to:
 3. Pay unwrap and refund payouts promptly
 4. Not abuse admin `pause()` without cause
 
-Users do **not** need to trust the operator for manual wBLOZ minting — minting goes through `BlozWrapClaim` on-chain.
+Normal wrap minting goes through `BlozWrapClaim` on-chain (the only `MINTER_ROLE` holder). The deployer is `DEFAULT_ADMIN` of wBLOZ and **can grant itself `MINTER_ROLE`**; it did so only for two refunds of burned wBLOZ (23 Sep and 22 Oct 2026: grant, mint, renounce). Users therefore trust the operator to mint only against reserve BLOZ; verify `reserve ≥ totalSupply` yourself.
 
 ## Known limitations
 

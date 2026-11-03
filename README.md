@@ -248,7 +248,7 @@ systemctl restart caddy
 
 - Custodial bridge: users trust the operator's reserves and payout/refund processing.
 
-- Minting is contract-gated via `BlozWrapClaim` — not a manual EOA mint.
+- Minting is contract-gated via `BlozWrapClaim`. The deployer (wBLOZ admin) can still grant itself `MINTER_ROLE`; this was used only for two refunds (see SECURITY.md).
 
 - Use a **hot wallet** for relayer; keep excess BLOZ in cold storage.
 
