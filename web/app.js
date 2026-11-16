@@ -263,8 +263,6 @@
         `<a href="https://bscscan.com/address/${status.wBLOZ}#code" target="_blank" rel="noopener">wBLOZ verified</a> · ` +
         `No third-party audit yet — review source on BscScan before large amounts.`;
     }
-    const tc = $("token-contract");
-    if (tc) tc.textContent = status.wBLOZ;
     updateUnwrapFeeUi();
   }
 
@@ -284,21 +282,31 @@
             address: status.wBLOZ,
             symbol: "wBLOZ",
             decimals: 8,
+            image: "https://bloz.org/assets/bloz-coin-icon-200.png",
           },
         },
       });
       if (!added) alert("Token import was cancelled in MetaMask.");
     } catch (e) {
-      alert(e.message || "Could not add token. Use manual import with the contract address above.");
+      alert(e.message || "Could not add token. Import it manually: wBLOZ contract under Contracts (BSC) below, decimals 8.");
     }
   }
 
-  function copyTokenAddress() {
-    if (!status?.wBLOZ) return;
-    navigator.clipboard.writeText(status.wBLOZ).then(
-      () => { $("copy-token").textContent = "Copied!"; setTimeout(() => { $("copy-token").textContent = "Copy contract address"; }, 2000); },
-      () => alert("Copy failed — select the address above manually.")
-    );
+  /** Right after a claim: the recent minted wrap gets a short done note with the one-click token import (MetaMask hides new tokens). */
+  function renderWrapDone(latest) {
+    const el = $("wrap-done");
+    if (!el) return;
+    const recent = latest && latest.status === "minted" && Date.now() - (latest.created_at ?? 0) < 7 * 24 * 3600 * 1000;
+    if (!recent) {
+      el.hidden = true;
+      return;
+    }
+    const minted = latest.bloz_amount != null ? calcWrapMint(Number(latest.bloz_amount)) : null;
+    el.hidden = false;
+    el.innerHTML =
+      `<strong>Claim complete${minted != null ? ` · ${minted.toFixed(8)} wBLOZ` : ""}</strong><br>` +
+      `MetaMask does not show wBLOZ until you add it once.` +
+      `<div class="wrap-actions"><button type="button" class="btn btn-primary add-token-btn">Add wBLOZ to MetaMask</button></div>`;
   }
 
   async function ensureBscNetwork(chainIdDec) {
@@ -489,7 +497,7 @@
       });
       await refreshHistory();
       scheduleFastPoll(120000);
-      alert("wBLOZ claimed successfully. Add the token in MetaMask if you do not see it yet.");
+      $("wrap-done")?.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch (e) {
       alert(e.reason || e.message || String(e));
       await refreshHistory();
@@ -650,6 +658,7 @@
     if (!data.requests?.length) {
       el.innerHTML = "";
       $("wrap-result").hidden = true;
+      renderWrapDone(null);
       return;
     }
 
@@ -672,6 +681,7 @@
     bindWrapActions(el);
 
     const active = getActiveWrap(data.requests, minConf);
+    renderWrapDone(active ? null : sorted[0]);
     if (active) {
       $("wrap-result").hidden = false;
       const statusLine = active.deposit
@@ -971,8 +981,9 @@ ${bz1}
   loadStatus().catch(() => {
     $("reserves").textContent = "Could not load bridge status.";
   });
-  $("add-token")?.addEventListener("click", () => addTokenToWallet().catch((e) => alert(e.message)));
-  $("copy-token")?.addEventListener("click", copyTokenAddress);
+  $("wrap-done")?.addEventListener("click", (e) => {
+    if (e.target.closest(".add-token-btn")) addTokenToWallet().catch((err) => alert(err.message));
+  });
   setInterval(() => {
     if (pollTimer) return;
     loadStatus().catch(() => {});
