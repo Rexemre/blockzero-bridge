@@ -365,6 +365,11 @@ def telegram(text: str):
     token, chat = CFG.get("TELEGRAM_BOT_TOKEN"), CFG.get("TELEGRAM_CHAT_ID")
     if DRY or not token or not chat:
         return
+    if str(CFG.get("TELEGRAM_NUR_ANTWORTEN", "1")) != "0":
+        # the shared bot only answers the owner's own messages now; alarms stay in status.json/events.jsonl,
+        # which the owner's assistant reads (bridgecheck). TELEGRAM_NUR_ANTWORTEN=0 in the env file restores pushes.
+        print("telegram held back (TELEGRAM_NUR_ANTWORTEN):", text[:160])
+        return
     try:
         data = urllib.parse.urlencode({"chat_id": chat, "text": text[:3900], "disable_web_page_preview": "true"}).encode()
         urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data, timeout=15)
